@@ -21,7 +21,7 @@
 ## 1. セットアップ
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/agenda23/weatherbot-fork
 cd weatherbot-fork
 pip install requests
 ```

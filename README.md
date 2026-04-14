@@ -74,8 +74,8 @@ Polymarket の気温マーケットは特定の空港観測局で解決されま
 ## インストール
 
 ```bash
-git clone https://github.com/alteregoeth-ai/weatherbot
-cd weatherbot
+git clone https://github.com/agenda23/weatherbot-fork
+cd weatherbot-fork
 pip install requests
 
 # 任意: eth_sign 署名検証を使う場合
@@ -273,4 +273,6 @@ weatherbot-fork/
 
 ## ライセンス
 
-MIT License (Copyright 2026 alteregoeth-ai)
+MIT License（Copyright 2026 agenda23）
+
+本リポジトリは [alteregoeth-ai/weatherbot](https://github.com/alteregoeth-ai/weatherbot) をフォークした開発用リポジトリです。

@@ -9,7 +9,7 @@
 
 本リポジトリは **Polymarket の気温系予測市場** を対象に、複数ソースの気象予報と市場価格を突き合わせ、**期待値（EV）・ケリー基準・スリッページ制限** などでエントリーを判断する **Python 製のトレーディング／シミュレーションボット** です。外部 SDK に依存せず `requests` と標準ライブラリで HTTP API を直接呼び出します。
 
-ライセンスは **MIT**（Copyright 2026 alteregoeth-ai）。
+ライセンスは **MIT**（Copyright 2026 agenda23）。フォーク元は [alteregoeth-ai/weatherbot](https://github.com/alteregoeth-ai/weatherbot)。
 
 ---
 
