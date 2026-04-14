@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-weatherbet.py — Weather Trading Bot for Polymarket
+bot_v2.py — Weather Trading Bot for Polymarket
 =====================================================
 Tracks weather forecasts from 3 sources (ECMWF, HRRR, METAR),
 compares with Polymarket markets, paper trades using Kelly criterion.
 
 Usage:
-    python weatherbet.py          # main loop
-    python weatherbet.py report   # full report
-    python weatherbet.py status   # balance and open positions
+    python bot_v2.py          # main loop
+    python bot_v2.py report   # full report
+    python bot_v2.py status   # balance and open positions
 """
 
 import re
@@ -17,6 +17,8 @@ import sys
 import json
 import math
 import time
+import hashlib
+import webbrowser
 import requests
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -39,13 +41,26 @@ KELLY_FRACTION   = _cfg.get("kelly_fraction", 0.25)
 MAX_SLIPPAGE     = _cfg.get("max_slippage", 0.03)  # max allowed ask-bid spread
 SCAN_INTERVAL    = _cfg.get("scan_interval", 3600)   # every hour
 CALIBRATION_MIN  = _cfg.get("calibration_min", 30)
+DAILY_LOSS_LIMIT_PCT = max(0.0, float(_cfg.get("daily_loss_limit_pct", 0.10)))
+DISCORD_WEBHOOK_URL = _cfg.get("discord_webhook_url", "").strip()
+API_FAILURE_ALERT_THRESHOLD = max(1, int(_cfg.get("api_failure_alert_threshold", 3)))
 VC_KEY           = _cfg.get("vc_key", "")
+CLOB_BASE_URL    = _cfg.get("clob_base_url", "https://clob.polymarket.com").rstrip("/")
+CLOB_API_KEY     = _cfg.get("clob_api_key", "").strip()
+POLYGON_WALLET_ADDRESS = _cfg.get("polygon_wallet_address", "").strip()
+POLYGON_PRIVATE_KEY = _cfg.get("polygon_private_key", "").strip()
+LIVE_TRADING_ENABLED = bool(_cfg.get("live_trading_enabled", False))
+CLOB_SIGNING_MODE = _cfg.get("clob_signing_mode", "stub").strip().lower()
 
 SIGMA_F = 2.0
 SIGMA_C = 1.2
 
 DATA_DIR         = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
+LOG_DIR          = DATA_DIR / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE         = LOG_DIR / "weatherbet.log"
+DASHBOARD_FILE   = DATA_DIR / "dashboard.json"
 STATE_FILE       = DATA_DIR / "state.json"
 MARKETS_DIR      = DATA_DIR / "markets"
 MARKETS_DIR.mkdir(exist_ok=True)
@@ -89,6 +104,26 @@ TIMEZONES = {
 
 MONTHS = ["january","february","march","april","may","june",
           "july","august","september","october","november","december"]
+API_FAILURE_COUNTS = {}
+
+# =============================================================================
+# LOGGING
+# =============================================================================
+
+def log_event(level, message, **fields):
+    """Console + JSON lines logger."""
+    ts = datetime.now(timezone.utc).isoformat()
+    level = level.upper()
+    print(f"[{ts}] [{level}] {message}")
+    payload = {"ts": ts, "level": level, "message": message}
+    if fields:
+        payload.update(fields)
+    try:
+        with LOG_FILE.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        # Logging failures should not stop trading logic.
+        pass
 
 # =============================================================================
 # MATH
@@ -99,7 +134,13 @@ def norm_cdf(x):
 
 def bucket_prob(forecast, t_low, t_high, sigma=None):
     """For regular buckets — exact match. For edge buckets — normal distribution."""
-    s = sigma or 2.0
+    s = 2.0 if sigma is None else float(sigma)
+    if s <= 0:
+        if t_low == -999:
+            return 1.0 if float(forecast) <= t_high else 0.0
+        if t_high == 999:
+            return 1.0 if float(forecast) >= t_low else 0.0
+        return 1.0 if in_bucket(forecast, t_low, t_high) else 0.0
     if t_low == -999:
         return norm_cdf((t_high - float(forecast)) / s)
     if t_high == 999:
@@ -119,6 +160,30 @@ def calc_kelly(p, price):
 def bet_size(kelly, balance):
     raw = kelly * balance
     return round(min(raw, MAX_BET), 2)
+
+
+def blend_forecast(ecmwf, hrrr, city_slug):
+    """Inverse-variance weighted blend of ECMWF and HRRR forecasts."""
+    sources = []
+    if ecmwf is not None:
+        sources.append((ecmwf, get_sigma(city_slug, "ecmwf")))
+    if hrrr is not None:
+        sources.append((hrrr, get_sigma(city_slug, "hrrr")))
+
+    if not sources:
+        return None, None
+    if len(sources) == 1:
+        return sources[0][0], sources[0][1]
+
+    weights = [1.0 / (s ** 2) for _, s in sources]
+    total_w = sum(weights)
+    blended_temp = sum(t * w for (t, _), w in zip(sources, weights)) / total_w
+    blended_sig = math.sqrt(1.0 / total_w)
+
+    unit = LOCATIONS[city_slug]["unit"]
+    if unit == "F":
+        return round(blended_temp), round(blended_sig, 3)
+    return round(blended_temp, 1), round(blended_sig, 3)
 
 # =============================================================================
 # CALIBRATION
@@ -154,17 +219,17 @@ def run_calibration(markets):
                     errors.append(abs(snap["temp"] - m["actual_temp"]))
             if len(errors) < CALIBRATION_MIN:
                 continue
-            mae  = sum(errors) / len(errors)
+            rmse = math.sqrt(sum(e ** 2 for e in errors) / len(errors))
             key  = f"{city}_{source}"
             old  = cal.get(key, {}).get("sigma", SIGMA_F if LOCATIONS[city]["unit"] == "F" else SIGMA_C)
-            new  = round(mae, 3)
+            new  = round(rmse, 3)
             cal[key] = {"sigma": new, "n": len(errors), "updated_at": datetime.now(timezone.utc).isoformat()}
             if abs(new - old) > 0.05:
                 updated.append(f"{LOCATIONS[city]['name']} {source}: {old:.2f}->{new:.2f}")
 
     CALIBRATION_FILE.write_text(json.dumps(cal, indent=2), encoding="utf-8")
     if updated:
-        print(f"  [CAL] {', '.join(updated)}")
+        log_event("INFO", f"[CAL] {', '.join(updated)}", updated=updated)
     return cal
 
 # =============================================================================
@@ -191,12 +256,14 @@ def get_ecmwf(city_slug, dates):
                 for date, temp in zip(data["daily"]["time"], data["daily"]["temperature_2m_max"]):
                     if date in dates and temp is not None:
                         result[date] = round(temp, 1) if unit == "C" else round(temp)
+            track_api_result("open_meteo_ecmwf", True)
             break
         except Exception as e:
             if attempt < 2:
                 time.sleep(3)
             else:
-                print(f"  [ECMWF] {city_slug}: {e}")
+                track_api_result("open_meteo_ecmwf", False, str(e))
+                log_event("WARNING", f"[ECMWF] {city_slug}: {e}", city=city_slug, source="ecmwf")
     return result
 
 def get_hrrr(city_slug, dates):
@@ -219,12 +286,14 @@ def get_hrrr(city_slug, dates):
                 for date, temp in zip(data["daily"]["time"], data["daily"]["temperature_2m_max"]):
                     if date in dates and temp is not None:
                         result[date] = round(temp)
+            track_api_result("open_meteo_hrrr", True)
             break
         except Exception as e:
             if attempt < 2:
                 time.sleep(3)
             else:
-                print(f"  [HRRR] {city_slug}: {e}")
+                track_api_result("open_meteo_hrrr", False, str(e))
+                log_event("WARNING", f"[HRRR] {city_slug}: {e}", city=city_slug, source="hrrr")
     return result
 
 def get_metar(city_slug):
@@ -238,11 +307,14 @@ def get_metar(city_slug):
         if data and isinstance(data, list):
             temp_c = data[0].get("temp")
             if temp_c is not None:
+                track_api_result("aviationweather_metar", True)
                 if unit == "F":
                     return round(float(temp_c) * 9/5 + 32)
                 return round(float(temp_c), 1)
+        track_api_result("aviationweather_metar", True)
     except Exception as e:
-        print(f"  [METAR] {city_slug}: {e}")
+        track_api_result("aviationweather_metar", False, str(e))
+        log_event("WARNING", f"[METAR] {city_slug}: {e}", city=city_slug, source="metar")
     return None
 
 def get_actual_temp(city_slug, date_str):
@@ -260,9 +332,12 @@ def get_actual_temp(city_slug, date_str):
         data = requests.get(url, timeout=(5, 8)).json()
         days = data.get("days", [])
         if days and days[0].get("tempmax") is not None:
+            track_api_result("visualcrossing", True)
             return round(float(days[0]["tempmax"]), 1)
+        track_api_result("visualcrossing", True)
     except Exception as e:
-        print(f"  [VC] {city_slug} {date_str}: {e}")
+        track_api_result("visualcrossing", False, str(e))
+        log_event("WARNING", f"[VC] {city_slug} {date_str}: {e}", city=city_slug, date=date_str, source="vc")
     return None
 
 def check_market_resolved(market_id):
@@ -280,12 +355,16 @@ def check_market_resolved(market_id):
         prices = json.loads(data.get("outcomePrices", "[0.5,0.5]"))
         yes_price = float(prices[0])
         if yes_price >= 0.95:
+            track_api_result("polymarket_market", True)
             return True   # WIN
         elif yes_price <= 0.05:
+            track_api_result("polymarket_market", True)
             return False  # LOSS
+        track_api_result("polymarket_market", True)
         return None  # not yet determined
     except Exception as e:
-        print(f"  [RESOLVE] {market_id}: {e}")
+        track_api_result("polymarket_market", False, str(e))
+        log_event("WARNING", f"[RESOLVE] {market_id}: {e}", market_id=market_id)
     return None
 
 # =============================================================================
@@ -297,19 +376,160 @@ def get_polymarket_event(city_slug, month, day, year):
     try:
         r = requests.get(f"https://gamma-api.polymarket.com/events?slug={slug}", timeout=(5, 8))
         data = r.json()
+        track_api_result("polymarket_event", True)
         if data and isinstance(data, list) and len(data) > 0:
             return data[0]
-    except Exception:
-        pass
+    except Exception as e:
+        track_api_result("polymarket_event", False, str(e))
+        log_event("WARNING", f"[POLY_EVENT] {city_slug}: {e}", city=city_slug)
     return None
 
 def get_market_price(market_id):
     try:
         r = requests.get(f"https://gamma-api.polymarket.com/markets/{market_id}", timeout=(3, 5))
         prices = json.loads(r.json().get("outcomePrices", "[0.5,0.5]"))
+        track_api_result("polymarket_market", True)
         return float(prices[0])
-    except Exception:
+    except Exception as e:
+        track_api_result("polymarket_market", False, str(e))
         return None
+
+
+class PolymarketCLOBClient:
+    """Minimal Polymarket CLOB REST client."""
+
+    def __init__(self, base_url=None, api_key=None, timeout=(5, 10)):
+        self.base_url = (base_url or CLOB_BASE_URL).rstrip("/")
+        self.api_key = CLOB_API_KEY if api_key is None else api_key
+        self.timeout = timeout
+
+    def _headers(self):
+        headers = {"Accept": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
+
+    def get_json(self, path, params=None):
+        url = f"{self.base_url}{path}"
+        r = requests.get(url, headers=self._headers(), params=params, timeout=self.timeout)
+        r.raise_for_status()
+        return r.json()
+
+    def post_json(self, path, payload):
+        url = f"{self.base_url}{path}"
+        headers = self._headers()
+        headers["Content-Type"] = "application/json"
+        r = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
+        r.raise_for_status()
+        return r.json()
+
+    def get_orderbook(self, token_id):
+        # CLOB read-only book endpoint.
+        return self.get_json("/book", params={"token_id": token_id})
+
+    def place_order(self, payload):
+        # Endpoint path may vary by deployment; kept configurable via base URL.
+        return self.post_json("/order", payload)
+
+    def get_order_status(self, order_id):
+        return self.get_json(f"/order/{order_id}")
+
+
+def build_clob_order_payload(token_id, side, price, size):
+    side_norm = side.lower().strip()
+    if side_norm not in ("buy", "sell"):
+        raise ValueError("side must be 'buy' or 'sell'")
+    payload = {
+        "token_id": str(token_id),
+        "side": side_norm,
+        "price": round(float(price), 6),
+        "size": round(float(size), 6),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    return payload
+
+
+def sign_clob_order_payload(payload, private_key, mode=None):
+    """Signs an order payload.
+
+    mode:
+      - stub: deterministic local stub signature
+      - eth_sign: personal_sign compatible signature via eth-account
+    """
+    mode = (mode or CLOB_SIGNING_MODE).lower()
+    if not validate_private_key(private_key):
+        raise ValueError("invalid private key")
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+    if mode == "stub":
+        digest = hashlib.sha256((body + private_key).encode("utf-8")).hexdigest()
+        return f"stub_{digest}"
+
+    if mode == "eth_sign":
+        try:
+            from eth_account import Account
+            from eth_account.messages import encode_defunct
+        except Exception as e:
+            raise RuntimeError("eth_sign mode requires eth-account package") from e
+        msg = encode_defunct(text=body)
+        signed = Account.sign_message(msg, private_key=private_key)
+        return signed.signature.hex()
+
+    raise ValueError("unsupported signing mode")
+
+
+def verify_eth_sign_payload_signature(payload, signature_hex, expected_address):
+    """Verifies personal_sign style signature for payload JSON."""
+    try:
+        from eth_account import Account
+        from eth_account.messages import encode_defunct
+    except Exception as e:
+        raise RuntimeError("signature verification requires eth-account package") from e
+
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    msg = encode_defunct(text=body)
+    recovered = Account.recover_message(msg, signature=signature_hex)
+    return recovered.lower() == str(expected_address).lower()
+
+
+def submit_clob_order(token_id, side, price, size, dry_run=True):
+    payload = build_clob_order_payload(token_id, side, price, size)
+    creds = load_wallet_credentials()
+    signature = sign_clob_order_payload(payload, creds["private_key"])
+    signed_payload = dict(payload)
+    signed_payload["wallet_address"] = creds["wallet_address"]
+    signed_payload["signature"] = signature
+
+    if dry_run or not LIVE_TRADING_ENABLED:
+        return {
+            "mode": "dry_run",
+            "live_enabled": LIVE_TRADING_ENABLED,
+            "payload": signed_payload,
+        }
+
+    client = PolymarketCLOBClient()
+    result = client.place_order(signed_payload)
+    return {"mode": "live", "result": result}
+
+
+def fetch_order_status(order_id):
+    client = PolymarketCLOBClient()
+    return client.get_order_status(order_id)
+
+
+def wait_for_order_fill(order_id, timeout_sec=60, poll_interval=3):
+    """Polls order status until filled/canceled/expired or timeout."""
+    deadline = time.time() + max(1, int(timeout_sec))
+    interval = max(1, int(poll_interval))
+    last_status = None
+    while time.time() < deadline:
+        status = fetch_order_status(order_id)
+        state = str(status.get("status", "")).lower()
+        last_status = status
+        if state in {"filled", "cancelled", "canceled", "expired", "rejected"}:
+            return {"done": True, "status": status}
+        time.sleep(interval)
+    return {"done": False, "status": last_status}
 
 def parse_temp_range(question):
     if not question: return None
@@ -366,6 +586,150 @@ def load_all_markets():
         except Exception:
             pass
     return markets
+
+
+def get_today_realized_loss(markets, now=None):
+    """Returns today's realized loss amount (positive number)."""
+    now = now or datetime.now(timezone.utc)
+    today = now.astimezone(timezone.utc).date()
+    realized_loss = 0.0
+
+    for mkt in markets:
+        pos = mkt.get("position") or {}
+        pnl = pos.get("pnl")
+        closed_at = pos.get("closed_at")
+        if pnl is None or pnl >= 0 or not closed_at:
+            continue
+        try:
+            closed_dt = datetime.fromisoformat(closed_at.replace("Z", "+00:00"))
+        except Exception:
+            continue
+        if closed_dt.astimezone(timezone.utc).date() == today:
+            realized_loss += -float(pnl)
+
+    return round(realized_loss, 2)
+
+
+def has_open_position_for_city_date(markets, city_slug, date_str):
+    """Returns True if an open position already exists for the same city/date."""
+    for mkt in markets:
+        if mkt.get("city") != city_slug or mkt.get("date") != date_str:
+            continue
+        pos = mkt.get("position") or {}
+        if pos.get("status") == "open":
+            return True
+    return False
+
+
+def calc_take_profit_threshold(hours_left):
+    """Continuous take-profit threshold by time-to-resolution.
+
+    - <24h: None (hold to resolution)
+    - 24-48h: linearly from 0.85 -> 0.75
+    - >=48h: 0.75
+    """
+    if hours_left < 24:
+        return None
+    if hours_left >= 48:
+        return 0.75
+    ratio = (hours_left - 24.0) / 24.0
+    threshold = 0.85 - (0.10 * ratio)
+    return round(threshold, 3)
+
+
+def calc_dynamic_stop_price(entry_price, sigma, unit):
+    """Sigma-aware dynamic stop loss price.
+
+    Base loss is 20%, then scaled by sigma / baseline_sigma.
+    Wider sigma -> wider stop (lower stop price).
+    """
+    baseline_sigma = 2.0 if unit == "F" else 1.2
+    s = float(sigma) if sigma is not None else baseline_sigma
+    scale = s / baseline_sigma if baseline_sigma > 0 else 1.0
+    loss_pct = 0.20 * scale
+    # Keep stop in a sane range.
+    loss_pct = min(max(loss_pct, 0.10), 0.35)
+    return round(entry_price * (1.0 - loss_pct), 4)
+
+
+def send_discord_notification(message):
+    """Sends a notification to Discord webhook (if configured)."""
+    if not DISCORD_WEBHOOK_URL:
+        return False
+    try:
+        res = requests.post(
+            DISCORD_WEBHOOK_URL,
+            json={"content": message},
+            timeout=(3, 5),
+        )
+        return 200 <= res.status_code < 300
+    except Exception:
+        return False
+
+
+def track_api_result(api_name, success, detail=""):
+    """Tracks consecutive API failures and alerts on threshold."""
+    prev = API_FAILURE_COUNTS.get(api_name, 0)
+    if success:
+        API_FAILURE_COUNTS[api_name] = 0
+        return 0
+
+    count = prev + 1
+    API_FAILURE_COUNTS[api_name] = count
+    if count == API_FAILURE_ALERT_THRESHOLD:
+        msg = (
+            f"API ALERT: {api_name} failed {count} times consecutively."
+            + (f" Last error: {detail}" if detail else "")
+        )
+        log_event("ERROR", msg, api=api_name, consecutive_failures=count)
+        send_discord_notification(msg)
+    return count
+
+
+def mask_secret(value, keep=4):
+    """Masks secret values for safe console output."""
+    if not value:
+        return ""
+    if len(value) <= keep * 2:
+        return "*" * len(value)
+    return f"{value[:keep]}...{value[-keep:]}"
+
+
+def load_wallet_credentials():
+    """Loads wallet credentials from env first, then config fallback."""
+    env_pk = ""
+    try:
+        env_pk = __import__("os").environ.get("POLYGON_PRIVATE_KEY", "").strip()
+    except Exception:
+        env_pk = ""
+    private_key = env_pk or POLYGON_PRIVATE_KEY
+    wallet_address = POLYGON_WALLET_ADDRESS
+    return {
+        "private_key": private_key,
+        "wallet_address": wallet_address,
+    }
+
+
+def validate_private_key(private_key):
+    """Basic EVM private key format validation."""
+    if not private_key:
+        return False
+    key = private_key.lower()
+    if key.startswith("0x"):
+        key = key[2:]
+    return bool(re.fullmatch(r"[0-9a-f]{64}", key))
+
+
+def wallet_status():
+    creds = load_wallet_credentials()
+    private_key = creds["private_key"]
+    wallet_address = creds["wallet_address"]
+    return {
+        "has_private_key": bool(private_key),
+        "private_key_valid": validate_private_key(private_key),
+        "masked_private_key": mask_secret(private_key),
+        "wallet_address": wallet_address,
+    }
 
 def new_market(city_slug, date_str, event, hours):
     loc = LOCATIONS[city_slug]
@@ -449,6 +813,23 @@ def scan_and_update():
     new_pos  = 0
     closed   = 0
     resolved = 0
+
+    markets = load_all_markets()
+    open_keys = {
+        (m.get("city"), m.get("date"))
+        for m in markets
+        if (m.get("position") or {}).get("status") == "open"
+    }
+    daily_loss = get_today_realized_loss(markets, now=now)
+    daily_limit = round(state.get("starting_balance", balance) * DAILY_LOSS_LIMIT_PCT, 2)
+    if DAILY_LOSS_LIMIT_PCT > 0 and daily_loss >= daily_limit:
+        log_event(
+            "WARNING",
+            f"[RISK] Daily loss limit reached ({daily_loss:.2f}/{daily_limit:.2f}) - scan skipped",
+            daily_loss=daily_loss,
+            daily_limit=daily_limit,
+        )
+        return
 
     for city_slug, loc in LOCATIONS.items():
         unit = loc["unit"]
@@ -551,7 +932,8 @@ def scan_and_update():
                 if current_price is not None:
                     current_price = o.get("bid", current_price)  # sell at bid
                     entry = pos["entry_price"]
-                    stop  = pos.get("stop_price", entry * 0.80)  # 20% stop by default
+                    sigma = pos.get("sigma")
+                    stop  = pos.get("stop_price", calc_dynamic_stop_price(entry, sigma, unit))  # dynamic stop
 
                     # Trailing: if up 20%+ — move stop to breakeven
                     if current_price >= entry * 1.20 and stop < entry:
@@ -570,6 +952,19 @@ def scan_and_update():
                         closed += 1
                         reason = "STOP" if current_price < entry else "TRAILING BE"
                         print(f"  [{reason}] {loc['name']} {date} | entry ${entry:.3f} exit ${current_price:.3f} | PnL: {'+'if pnl>=0 else ''}{pnl:.2f}")
+                        level = "WARNING" if current_price < entry else "INFO"
+                        log_event(
+                            level,
+                            f"[{reason}] {loc['name']} {date} | entry ${entry:.3f} exit ${current_price:.3f} | PnL: {'+'if pnl>=0 else ''}{pnl:.2f}",
+                            city=city_slug,
+                            date=date,
+                            reason=pos["close_reason"],
+                            pnl=pnl,
+                        )
+                        if current_price < entry:
+                            send_discord_notification(
+                                f"STOP LOSS: {loc['name']} {date} | entry ${entry:.3f} -> exit ${current_price:.3f} | PnL {pnl:+.2f}"
+                            )
 
             # --- CLOSE POSITION if forecast shifted 2+ degrees ---
             if mkt.get("position") and forecast_temp is not None:
@@ -597,9 +992,26 @@ def scan_and_update():
                         mkt["position"]["status"]       = "closed"
                         closed += 1
                         print(f"  [CLOSE] {loc['name']} {date} — forecast changed | PnL: {'+'if pnl>=0 else ''}{pnl:.2f}")
+                        log_event(
+                            "INFO",
+                            f"[CLOSE] {loc['name']} {date} — forecast changed | PnL: {'+'if pnl>=0 else ''}{pnl:.2f}",
+                            city=city_slug,
+                            date=date,
+                            reason="forecast_changed",
+                            pnl=pnl,
+                        )
 
             # --- OPEN POSITION ---
             if not mkt.get("position") and forecast_temp is not None and hours >= MIN_HOURS:
+                if (city_slug, date) in open_keys:
+                    log_event(
+                        "INFO",
+                        f"[SKIP] Correlation guard: existing open position for {loc['name']} {date}",
+                        city=city_slug,
+                        date=date,
+                        reason="correlation_guard",
+                    )
+                    continue
                 sigma = get_sigma(city_slug, best_source or "ecmwf")
                 best_signal = None
 
@@ -658,6 +1070,7 @@ def scan_and_update():
                     try:
                         r = requests.get(f"https://gamma-api.polymarket.com/markets/{best_signal['market_id']}", timeout=(3, 5))
                         mdata = r.json()
+                        track_api_result("polymarket_market", True)
                         real_ask = float(mdata.get("bestAsk", best_signal["entry_price"]))
                         real_bid = float(mdata.get("bestBid", best_signal["bid_at_entry"]))
                         real_spread = round(real_ask - real_bid, 4)
@@ -672,17 +1085,39 @@ def scan_and_update():
                             best_signal["shares"]       = round(best_signal["cost"] / real_ask, 2)
                             best_signal["ev"]           = round(calc_ev(best_signal["p"], real_ask), 4)
                     except Exception as e:
+                        track_api_result("polymarket_market", False, str(e))
                         print(f"  [WARN] Could not fetch real ask for {best_signal['market_id']}: {e}")
+                        log_event(
+                            "WARNING",
+                            f"[WARN] Could not fetch real ask for {best_signal['market_id']}: {e}",
+                            market_id=best_signal["market_id"],
+                        )
 
                     if not skip_position and best_signal["entry_price"] < MAX_PRICE:
                         balance -= best_signal["cost"]
                         mkt["position"] = best_signal
+                        open_keys.add((city_slug, date))
                         state["total_trades"] += 1
                         new_pos += 1
                         bucket_label = f"{best_signal['bucket_low']}-{best_signal['bucket_high']}{unit_sym}"
                         print(f"  [BUY]  {loc['name']} {horizon} {date} | {bucket_label} | "
                               f"${best_signal['entry_price']:.3f} | EV {best_signal['ev']:+.2f} | "
                               f"${best_signal['cost']:.2f} ({best_signal['forecast_src'].upper()})")
+                        log_event(
+                            "INFO",
+                            f"[BUY] {loc['name']} {horizon} {date} | {bucket_label} | "
+                            f"${best_signal['entry_price']:.3f} | EV {best_signal['ev']:+.2f} | "
+                            f"${best_signal['cost']:.2f} ({best_signal['forecast_src'].upper()})",
+                            city=city_slug,
+                            date=date,
+                            horizon=horizon,
+                            market_id=best_signal["market_id"],
+                            ev=best_signal["ev"],
+                            cost=best_signal["cost"],
+                        )
+                        send_discord_notification(
+                            f"NEW POSITION: {loc['name']} {date} {bucket_label} | entry ${best_signal['entry_price']:.3f} | size ${best_signal['cost']:.2f} | EV {best_signal['ev']:+.2f}"
+                        )
 
             # Market closed by time
             if hours < 0.5 and mkt["status"] == "open":
@@ -734,6 +1169,14 @@ def scan_and_update():
 
         result = "WIN" if won else "LOSS"
         print(f"  [{result}] {mkt['city_name']} {mkt['date']} | PnL: {'+'if pnl>=0 else ''}{pnl:.2f}")
+        log_event(
+            "INFO",
+            f"[{result}] {mkt['city_name']} {mkt['date']} | PnL: {'+'if pnl>=0 else ''}{pnl:.2f}",
+            city=mkt["city"],
+            date=mkt["date"],
+            result=mkt["resolved_outcome"],
+            pnl=pnl,
+        )
         resolved += 1
 
         save_market(mkt)
@@ -853,6 +1296,74 @@ def print_report():
 
     print(f"{'='*55}\n")
 
+
+def export_dashboard_data():
+    """Generates data/dashboard.json for local dashboard usage."""
+    state = load_state()
+    markets = load_all_markets()
+    open_pos = [m for m in markets if (m.get("position") or {}).get("status") == "open"]
+    resolved = [m for m in markets if m.get("status") == "resolved" and m.get("pnl") is not None]
+
+    open_positions = []
+    for m in open_pos:
+        pos = m["position"]
+        current_price = pos["entry_price"]
+        for o in m.get("all_outcomes", []):
+            if o.get("market_id") == pos.get("market_id"):
+                current_price = o.get("bid", o.get("price", current_price))
+                break
+        unrealized = round((current_price - pos["entry_price"]) * pos["shares"], 2)
+        open_positions.append(
+            {
+                "city": m.get("city"),
+                "city_name": m.get("city_name"),
+                "date": m.get("date"),
+                "bucket_low": pos.get("bucket_low"),
+                "bucket_high": pos.get("bucket_high"),
+                "entry_price": pos.get("entry_price"),
+                "current_price": current_price,
+                "shares": pos.get("shares"),
+                "cost": pos.get("cost"),
+                "unrealized_pnl": unrealized,
+                "forecast_source": pos.get("forecast_src"),
+            }
+        )
+
+    total_pnl = round(sum(float(m.get("pnl", 0)) for m in resolved), 2)
+    wins = len([m for m in resolved if m.get("resolved_outcome") == "win"])
+    losses = len([m for m in resolved if m.get("resolved_outcome") == "loss"])
+
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "state": state,
+        "summary": {
+            "open_count": len(open_pos),
+            "resolved_count": len(resolved),
+            "wins": wins,
+            "losses": losses,
+            "total_realized_pnl": total_pnl,
+        },
+        "open_positions": open_positions,
+        "recent_resolved": sorted(
+            [
+                {
+                    "city": m.get("city"),
+                    "city_name": m.get("city_name"),
+                    "date": m.get("date"),
+                    "pnl": m.get("pnl"),
+                    "result": m.get("resolved_outcome"),
+                }
+                for m in resolved
+            ],
+            key=lambda x: x["date"] or "",
+            reverse=True,
+        )[:30],
+    }
+
+    DASHBOARD_FILE.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    log_event("INFO", "[DASHBOARD] data/dashboard.json exported", path=str(DASHBOARD_FILE))
+    return DASHBOARD_FILE
+
 # =============================================================================
 # MAIN LOOP
 # =============================================================================
@@ -879,11 +1390,12 @@ def monitor_positions():
         try:
             r = requests.get(f"https://gamma-api.polymarket.com/markets/{mid}", timeout=(3, 5))
             mdata = r.json()
+            track_api_result("polymarket_market", True)
             best_bid = mdata.get("bestBid")
             if best_bid is not None:
                 current_price = float(best_bid)
-        except Exception:
-            pass
+        except Exception as e:
+            track_api_result("polymarket_market", False, str(e))
 
         # Fallback to cached price if API failed
         if current_price is None:
@@ -896,26 +1408,28 @@ def monitor_positions():
             continue
 
         entry = pos["entry_price"]
-        stop  = pos.get("stop_price", entry * 0.80)
+        stop  = pos.get("stop_price", calc_dynamic_stop_price(entry, pos.get("sigma"), mkt.get("unit", "F")))
         city_name = LOCATIONS.get(mkt["city"], {}).get("name", mkt["city"])
 
         # Hours left to resolution
         end_date = mkt.get("event_end_date", "")
         hours_left = hours_to_resolution(end_date) if end_date else 999.0
 
-        # Take-profit threshold based on hours to resolution
-        if hours_left < 24:
-            take_profit = None        # hold to resolution
-        elif hours_left < 48:
-            take_profit = 0.85        # 24-48h: take profit at $0.85
-        else:
-            take_profit = 0.75        # 48h+: take profit at $0.75
+        # Continuous take-profit threshold based on hours to resolution
+        take_profit = calc_take_profit_threshold(hours_left)
 
         # Trailing: if up 20%+ — move stop to breakeven
         if current_price >= entry * 1.20 and stop < entry:
             pos["stop_price"] = entry
             pos["trailing_activated"] = True
             print(f"  [TRAILING] {city_name} {mkt['date']} — stop moved to breakeven ${entry:.3f}")
+            log_event(
+                "INFO",
+                f"[TRAILING] {city_name} {mkt['date']} — stop moved to breakeven ${entry:.3f}",
+                city=mkt["city"],
+                date=mkt["date"],
+                stop_price=entry,
+            )
 
         # Check take-profit
         take_triggered = take_profit is not None and current_price >= take_profit
@@ -940,6 +1454,18 @@ def monitor_positions():
             pos["status"]       = "closed"
             closed += 1
             print(f"  [{reason}] {city_name} {mkt['date']} | entry ${entry:.3f} exit ${current_price:.3f} | {hours_left:.0f}h left | PnL: {'+'if pnl>=0 else ''}{pnl:.2f}")
+            log_event(
+                "WARNING" if pos["close_reason"] == "stop_loss" else "INFO",
+                f"[{reason}] {city_name} {mkt['date']} | entry ${entry:.3f} exit ${current_price:.3f} | {hours_left:.0f}h left | PnL: {'+'if pnl>=0 else ''}{pnl:.2f}",
+                city=mkt["city"],
+                date=mkt["date"],
+                reason=pos["close_reason"],
+                pnl=pnl,
+            )
+            if pos["close_reason"] == "stop_loss":
+                send_discord_notification(
+                    f"STOP LOSS: {city_name} {mkt['date']} | entry ${entry:.3f} -> exit ${current_price:.3f} | PnL {pnl:+.2f}"
+                )
             save_market(mkt)
 
     if closed:
@@ -1024,5 +1550,99 @@ if __name__ == "__main__":
     elif cmd == "report":
         _cal = load_cal()
         print_report()
+    elif cmd == "dashboard":
+        export_path = export_dashboard_data()
+        html_path = Path("sim_dashboard_repost.html").resolve()
+        print(f"Dashboard data exported: {export_path}")
+        if html_path.exists():
+            webbrowser.open(html_path.as_uri())
+            print(f"Opened: {html_path}")
+        else:
+            print("sim_dashboard_repost.html not found.")
+    elif cmd == "clob-book":
+        token_id = sys.argv[2] if len(sys.argv) > 2 else ""
+        if not token_id:
+            print("Usage: python bot_v2.py clob-book <token_id>")
+            sys.exit(1)
+        client = PolymarketCLOBClient()
+        try:
+            book = client.get_orderbook(token_id)
+            bids = book.get("bids", [])
+            asks = book.get("asks", [])
+            best_bid = bids[0]["price"] if bids else None
+            best_ask = asks[0]["price"] if asks else None
+            print(f"CLOB token_id={token_id}")
+            print(f"  best_bid: {best_bid}")
+            print(f"  best_ask: {best_ask}")
+        except Exception as e:
+            log_event("ERROR", f"[CLOB] Failed to fetch orderbook: {e}", token_id=token_id)
+            print(f"CLOB error: {e}")
+    elif cmd == "wallet-status":
+        status = wallet_status()
+        print("Wallet status:")
+        print(f"  private key set:   {status['has_private_key']}")
+        print(f"  private key valid: {status['private_key_valid']}")
+        print(f"  private key:       {status['masked_private_key'] or '-'}")
+        print(f"  wallet address:    {status['wallet_address'] or '-'}")
+        print(f"  signing mode:      {CLOB_SIGNING_MODE}")
+    elif cmd == "clob-order":
+        if len(sys.argv) < 6:
+            print("Usage: python bot_v2.py clob-order <token_id> <buy|sell> <price> <size> [--live]")
+            sys.exit(1)
+        token_id = sys.argv[2]
+        side = sys.argv[3]
+        price = sys.argv[4]
+        size = sys.argv[5]
+        dry_run = "--live" not in sys.argv[6:]
+        try:
+            res = submit_clob_order(token_id, side, price, size, dry_run=dry_run)
+            print(json.dumps(res, indent=2, ensure_ascii=False))
+        except Exception as e:
+            log_event("ERROR", f"[CLOB] order submit failed: {e}", token_id=token_id, side=side)
+            print(f"CLOB order error: {e}")
+    elif cmd == "clob-sign-check":
+        if len(sys.argv) < 6:
+            print("Usage: python bot_v2.py clob-sign-check <token_id> <buy|sell> <price> <size>")
+            sys.exit(1)
+        token_id = sys.argv[2]
+        side = sys.argv[3]
+        price = sys.argv[4]
+        size = sys.argv[5]
+        creds = load_wallet_credentials()
+        try:
+            payload = build_clob_order_payload(token_id, side, price, size)
+            signature = sign_clob_order_payload(payload, creds["private_key"], mode="eth_sign")
+            ok = verify_eth_sign_payload_signature(payload, signature, creds["wallet_address"])
+            print(json.dumps({
+                "ok": ok,
+                "wallet_address": creds["wallet_address"],
+                "signature": signature,
+                "payload": payload,
+            }, indent=2, ensure_ascii=False))
+        except Exception as e:
+            log_event("ERROR", f"[CLOB] sign check failed: {e}", token_id=token_id, side=side)
+            print(f"CLOB sign-check error: {e}")
+    elif cmd == "clob-order-status":
+        if len(sys.argv) < 3:
+            print("Usage: python bot_v2.py clob-order-status <order_id> [--wait --timeout=60 --poll=3]")
+            sys.exit(1)
+        order_id = sys.argv[2]
+        should_wait = "--wait" in sys.argv[3:]
+        timeout_sec = 60
+        poll_sec = 3
+        for arg in sys.argv[3:]:
+            if arg.startswith("--timeout="):
+                timeout_sec = int(arg.split("=", 1)[1])
+            elif arg.startswith("--poll="):
+                poll_sec = int(arg.split("=", 1)[1])
+        try:
+            if should_wait:
+                result = wait_for_order_fill(order_id, timeout_sec=timeout_sec, poll_interval=poll_sec)
+            else:
+                result = {"done": False, "status": fetch_order_status(order_id)}
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        except Exception as e:
+            log_event("ERROR", f"[CLOB] order status failed: {e}", order_id=order_id)
+            print(f"CLOB status error: {e}")
     else:
-        print("Usage: python weatherbet.py [run|status|report]")
+        print("Usage: python bot_v2.py [run|status|report|dashboard|clob-book|wallet-status|clob-order|clob-order-status|clob-sign-check]")

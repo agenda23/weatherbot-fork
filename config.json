@@ -8,7 +8,19 @@
   "max_hours": 72.0,
   "kelly_fraction": 0.25,
   "scan_interval": 3600,
+  "daily_loss_limit_pct": 0.1,
+  "api_failure_alert_threshold": 3,
+  "discord_webhook_url": "",
+  "clob_base_url": "https://clob.polymarket.com",
+  "clob_api_key": "",
+  "polygon_wallet_address": "",
+  "polygon_private_key": "",
+  "clob_signing_mode": "stub",
+  "live_trading_enabled": false,
   "calibration_min": 30,
   "vc_key": "YOUR_KEY_HERE",
-  "max_slippage": 0.03
+  "max_slippage": 0.03,
+  "sigma_f": 2.0,
+  "sigma_c": 1.2,
+  "max_open_positions": 10
 }
