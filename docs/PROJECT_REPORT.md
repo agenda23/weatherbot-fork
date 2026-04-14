@@ -19,8 +19,8 @@
 |------|------|
 | `README.md` | プロジェクト説明・インストール・設定例・利用 API 一覧 |
 | `config.json` | 実行時パラメータ（残高上限、EV 閾値、スキャン間隔など） |
-| `bot_v1.py` | **v1**: 米国 6 都市、NWS 予報中心のシンプル版 |
-| `bot_v2.py` | **v2（フル機能）**: 20 都市、ECMWF / HRRR / METAR、ケリー・キャリブレーション、CLOB/ウォレット周辺 CLI 等 |
+| `weatherbet_v1.py` | **v1**: 米国 6 都市、NWS 予報中心のシンプル版 |
+| `weatherbet.py` | **v2（フル機能）**: 20 都市、ECMWF / HRRR / METAR、ケリー・キャリブレーション、CLOB/ウォレット周辺 CLI 等 |
 | `sim_dashboard_repost.html` | Chart.js 利用の **Kelly シミュレーション用ダッシュボード**（単体 HTML） |
 | `LICENSE` | MIT |
 | `.gitignore` | Python 一般的除外 + `docs/_build/`（Sphinx 想定）など |
@@ -31,7 +31,7 @@
 
 ## 3. バージョン別の違い
 
-### 3.1 `bot_v1.py`（ベース）
+### 3.1 `weatherbet_v1.py`（ベース）
 
 - **対象都市**: 米国 6（NYC, Chicago, Miami, Dallas, Seattle, Atlanta）。空港近傍座標で Polymarket の実測地点に寄せている。
 - **予報**: NOAA **NWS** の gridpoint hourly エンドポイント（都市ごとに固定 URL）。
@@ -39,7 +39,7 @@
 - **状態ファイル**: ルートの `simulation.json`（仮想残高・ポジション）。
 - **`config.json` の想定キー例**: `entry_threshold`, `exit_threshold`, `max_trades_per_run`, `min_hours_to_resolution`, `locations` など（v2 とは **スキーマが異なる**）。
 
-### 3.2 `bot_v2.py`（現行フルロジック相当）
+### 3.2 `weatherbet.py`（現行フルロジック相当）
 
 - **対象都市**: **20**（US / EU / Asia / CA / SA / Oceania）。各都市に **ICAO 空港局**、摂氏／華氏、地域（`region`）が定義されている。
 - **予報ソース**:
@@ -57,7 +57,7 @@
   - **モニタリング**（10 分間隔）では Polymarket Gamma の **bestBid** を取得し、残り時間に応じた **連続テイクプロフィット閾値**（線形補間）を評価
   - フルスキャン内では予報がポジションのバケットから大きく外れた場合に **「forecast_changed」** でクローズするロジックあり
 - **データ永続化**: `data/state.json`（残高）、`data/markets/`（市場ごと JSON）、スナップショット履歴を蓄積。構造化ログは `data/logs/weatherbet.log`。
-- **CLI**: `run`（省略時） / `status` / `report` / `dashboard` / CLOB・ウォレット関連サブコマンド（`clob-book` 等）。Usage は `python bot_v2.py` に統一。
+- **CLI**: `run`（省略時） / `status` / `report` / `dashboard` / CLOB・ウォレット関連サブコマンド（`clob-book` 等）。Usage は `python weatherbet.py` に統一。
 
 ---
 
@@ -92,7 +92,7 @@
 - **CLOB REST**（設定 `clob_base_url`、既定 `https://clob.polymarket.com`）向けクライアントを追加。**板取得（GET）** と **注文送信（POST、`live_trading_enabled` が true かつ dry-run でない場合のみ）**、**注文ステータス（GET）** を CLI から利用可能。
 - **メインのペーパートレード**は従来どおり **`data/state.json` と `data/markets/`** に保存。CLOB は実取引向けの補助レイヤー（デフォルトは dry-run / live 無効）。
 
-### 5.2 呼び出しエンドポイント（`bot_v2.py` / `bot_v1.py` 共通の考え方）
+### 5.2 呼び出しエンドポイント（`weatherbet.py` / `weatherbet_v1.py` 共通の考え方）
 
 | メソッド | URL パターン | 用途 |
 |----------|----------------|------|
@@ -137,13 +137,13 @@
 
 ## 7. README と実装の整合
 
-README・`bot_v2.py` の表記は **`python bot_v2.py`** に統一済み。v1 を試す場合は `python bot_v1.py` およびそのオプションを利用します（設定キーは v2 用 `config.json` と完全には互換ではありません）。
+README・`weatherbet.py` の表記は **`python weatherbet.py`** に統一済み。v1 を試す場合は `python weatherbet_v1.py` およびそのオプションを利用します（設定キーは v2 用 `config.json` と完全には互換ではありません）。
 
 ---
 
 ## 8. 付属 HTML `sim_dashboard_repost.html`
 
-単体の **ダッシュボード UI**（レトロなターミナル風デザイン、Chart.js CDN）。`python bot_v2.py dashboard` で `data/dashboard.json` を生成し HTML を開く連携は実装済み。HTML が JSON を fetch する完全自動表示は未。
+単体の **ダッシュボード UI**（レトロなターミナル風デザイン、Chart.js CDN）。`python weatherbet.py dashboard` で `data/dashboard.json` を生成し HTML を開く連携は実装済み。HTML が JSON を fetch する完全自動表示は未。
 
 ---
 
@@ -171,4 +171,4 @@ v1 単体利用時は `simulation.json` がルートに生成されます。
 
 ## 11. 参考（主要エントリポイント）
 
-`bot_v2.py` の CLI は `run` / `status` / `report` / `dashboard` / CLOB・ウォレット系サブコマンドを含みます。末尾の Usage 行は `python bot_v2.py [...]` に統一されています（該当箇所は `bot_v2.py` の `if __name__ == "__main__":` ブロック末尾を参照）。
+`weatherbet.py` の CLI は `run` / `status` / `report` / `dashboard` / CLOB・ウォレット系サブコマンドを含みます。末尾の Usage 行は `python weatherbet.py [...]` に統一されています（該当箇所は `weatherbet.py` の `if __name__ == "__main__":` ブロック末尾を参照）。

@@ -4,10 +4,10 @@ Weather Trading Bot v1 — Polymarket
 Simple base bot. Finds mispriced temperature markets using NWS forecasts.
 
 Usage:
-    python bot_v1.py           # Scan markets and show signals (paper mode)
-    python bot_v1.py --live    # Execute trades against virtual $1,000 balance
-    python bot_v1.py --reset   # Reset simulation balance
-    python bot_v1.py --positions  # Show open positions
+    python weatherbet_v1.py           # Scan markets and show signals (paper mode)
+    python weatherbet_v1.py --live    # Execute trades against virtual $1,000 balance
+    python weatherbet_v1.py --reset   # Reset simulation balance
+    python weatherbet_v1.py --positions  # Show open positions
 """
 
 import re

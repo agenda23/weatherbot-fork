@@ -209,3 +209,6 @@ __marimo__/
 # WeatherBot local runtime data
 data/
 simulation.json
+
+# Bundled vendored dependencies (not loaded at runtime)
+.deps/

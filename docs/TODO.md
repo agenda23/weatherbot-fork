@@ -10,8 +10,8 @@
 | 優先度 | タスク | 備考 |
 |--------|--------|------|
 | ✅ | `.gitignore` に `data/` と `simulation.json` を追加 | 完了 |
-| ✅ | `README.md` の `weatherbet.py` → `bot_v2.py` に修正 | 完了 |
-| ✅ | `bot_v2.py` の先頭 docstring と CLI usage の `weatherbet.py` 表記を修正 | 完了 |
+| ✅ | `README.md` の `weatherbet.py` → `weatherbet.py` に修正 | 完了 |
+| ✅ | `weatherbet.py` の先頭 docstring と CLI usage の `weatherbet.py` 表記を修正 | 完了 |
 
 ---
 
@@ -45,7 +45,7 @@ pytest tests/ -v
 
 ### モジュール分割 🟢
 
-現状: `bot_v2.py` が約1060行の単一ファイル。将来的に以下に分割:
+現状: `weatherbet.py` が約1060行の単一ファイル。将来的に以下に分割:
 
 ```
 src/weatherbet/
@@ -94,7 +94,7 @@ rmse = math.sqrt(sum(e**2 for e in errors) / len(errors))
 
 - 設定: `daily_loss_limit_pct`（例: 0.10 = 残高の10%）
 - ロジック: `scan_and_update()` 入口で当日の確定損失を集計し、制限超過時はスキャンをスキップ
-- 対象ファイル: `bot_v2.py` + `config.json`
+- 対象ファイル: `weatherbet.py` + `config.json`
 
 進捗: ✅ 実装済み（`get_today_realized_loss()` + 入口ガード）。
 
@@ -136,7 +136,7 @@ def export_dashboard_data():
 ### ローカルサーバー 🟢
 
 ```bash
-python bot_v2.py dashboard   # dashboard.json を生成してブラウザで開く
+python weatherbet.py dashboard   # dashboard.json を生成してブラウザで開く
 ```
 
 既存の `sim_dashboard_repost.html` との連携（現状は `data/` との接続なし）

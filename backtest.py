@@ -28,7 +28,7 @@ with open("config.json", encoding="utf-8") as f:
     _base_cfg = json.load(f)
 
 # =============================================================================
-# PURE MATH  (mirrors bot_v2.py — kept local to avoid module-level side effects)
+# PURE MATH  (mirrors weatherbet.py — kept local to avoid module-level side effects)
 # =============================================================================
 
 def norm_cdf(x):
@@ -144,7 +144,7 @@ def run_backtest(markets, cfg, calibration=None, forward=False):
         Candidates: ALL markets with actual_temp recorded (regardless of whether
         the bot entered).  Win/loss determined locally: actual_temp inside the
         would-have-entered bucket → WIN, outside → LOSS.
-        Requires bot_v2.py to have fetched actual_temp via vc_key.
+        Requires weatherbet.py to have fetched actual_temp via vc_key.
         Use-case: full parameter evaluation including markets the bot skipped.
 
     Entry decision point: first forecast snapshot with >= 2h left.
@@ -478,7 +478,7 @@ def main():
         if not eligible:
             print(
                 "  No markets with actual_temp found.\n"
-                "  Ensure vc_key is set in config.json and bot_v2.py has run long enough\n"
+                "  Ensure vc_key is set in config.json and weatherbet.py has run long enough\n"
                 "  for markets to close and actual temps to be fetched."
             )
             return
@@ -488,7 +488,7 @@ def main():
         if not resolved:
             print(
                 "  No resolved markets found.\n"
-                "  Run bot_v2.py for a while so markets accumulate in data/markets/."
+                "  Run weatherbet.py for a while so markets accumulate in data/markets/."
             )
             return
 

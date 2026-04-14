@@ -24,11 +24,11 @@ Polymarket では「シカゴの最高気温が 46〜47°F になるか？」の
 
 ## バージョン
 
-### `bot_v1.py` — ベースボット
+### `weatherbet_v1.py` — ベースボット
 
 米国 6 都市対象。NWS 予報と空港座標で基本的なシグナル検出を行うシンプル版。ロジックの理解に適しています。
 
-### `bot_v2.py` — フル機能ボット（現行）
+### `weatherbet.py` — フル機能ボット（現行）
 
 v1 のすべてに加え、以下を搭載:
 
@@ -76,10 +76,10 @@ Polymarket の気温マーケットは特定の空港観測局で解決されま
 ```bash
 git clone https://github.com/agenda23/weatherbot-fork
 cd weatherbot-fork
-pip install requests
+pip install -r requirements.txt
 
-# 任意: eth_sign 署名検証を使う場合
-pip install eth-account
+# 任意: eth_sign 署名検証を使う場合（requirements.txt 内のコメントを外して再実行）
+# pip install eth-account
 
 # 任意: テスト実行
 pip install pytest
@@ -145,22 +145,22 @@ Visual Crossing の無料 API キーは [visualcrossing.com](https://www.visualc
 ### 基本操作
 
 ```bash
-python bot_v2.py              # ボット起動（毎時スキャン + 10分監視）
-python bot_v2.py status       # 残高・オープンポジション表示
-python bot_v2.py report       # 全解決マーケットの詳細レポート
-python bot_v2.py dashboard    # data/dashboard.json 生成 + HTML オープン
+python weatherbet.py              # ボット起動（毎時スキャン + 10分監視）
+python weatherbet.py status       # 残高・オープンポジション表示
+python weatherbet.py report       # 全解決マーケットの詳細レポート
+python weatherbet.py dashboard    # data/dashboard.json 生成 + HTML オープン
 ```
 
 ### CLOB・ウォレット操作（実取引向け）
 
 ```bash
-python bot_v2.py clob-book <token_id>                                    # 板情報取得
-python bot_v2.py clob-order <token_id> <buy|sell> <price> <size>         # 注文 dry-run
-python bot_v2.py clob-order <token_id> <buy|sell> <price> <size> --live  # 実注文送信
-python bot_v2.py clob-order-status <order_id>                            # 注文ステータス
-python bot_v2.py clob-order-status <order_id> --wait --timeout=90        # 約定までポーリング
-python bot_v2.py wallet-status                                           # ウォレット設定確認
-python bot_v2.py clob-sign-check <token_id> <buy|sell> <price> <size>    # 署名の自己検証
+python weatherbet.py clob-book <token_id>                                    # 板情報取得
+python weatherbet.py clob-order <token_id> <buy|sell> <price> <size>         # 注文 dry-run
+python weatherbet.py clob-order <token_id> <buy|sell> <price> <size> --live  # 実注文送信
+python weatherbet.py clob-order-status <order_id>                            # 注文ステータス
+python weatherbet.py clob-order-status <order_id> --wait --timeout=90        # 約定までポーリング
+python weatherbet.py wallet-status                                           # ウォレット設定確認
+python weatherbet.py clob-sign-check <token_id> <buy|sell> <price> <size>    # 署名の自己検証
 ```
 
 ---
@@ -225,8 +225,8 @@ pytest tests/ -v
 
 ```
 weatherbot-fork/
-├── bot_v1.py                    # v1 ベースボット
-├── bot_v2.py                    # v2 フル機能ボット（約 1,650 行）
+├── weatherbet_v1.py                    # v1 ベースボット
+├── weatherbet.py                    # v2 フル機能ボット（約 1,650 行）
 ├── backtest.py                  # バックテスト・パラメータスイープ
 ├── config.json                  # 設定ファイル
 ├── sim_dashboard_repost.html    # Kelly シミュレーター HTML
