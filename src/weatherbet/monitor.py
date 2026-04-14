@@ -9,6 +9,7 @@ from weatherbet.storage.state import load_state, save_state
 from weatherbet.storage.markets import load_all_markets, save_market
 from weatherbet.market.parser import hours_to_resolution
 from weatherbet.strategy.risk import calc_dynamic_stop_price, calc_take_profit_threshold
+from weatherbet.report import export_dashboard_data
 
 
 def monitor_positions():
@@ -16,6 +17,10 @@ def monitor_positions():
     markets  = load_all_markets()
     open_pos = [m for m in markets if m.get("position") and m["position"].get("status") == "open"]
     if not open_pos:
+        try:
+            export_dashboard_data()
+        except Exception:
+            pass
         return 0
 
     state   = load_state()
@@ -103,5 +108,10 @@ def monitor_positions():
     if closed:
         state["balance"] = round(balance, 2)
         save_state(state)
+
+    try:
+        export_dashboard_data()
+    except Exception as e:
+        log_event("WARNING", f"[DASHBOARD] export failed: {e}")
 
     return closed

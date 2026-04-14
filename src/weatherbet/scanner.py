@@ -24,6 +24,7 @@ from weatherbet.strategy.risk import (
     calc_dynamic_stop_price,
     calc_take_profit_threshold,
 )
+from weatherbet.report import export_dashboard_data
 
 
 def scan_and_update():
@@ -383,5 +384,10 @@ def scan_and_update():
     resolved_count = len([m for m in all_mkts if m["status"] == "resolved"])
     if resolved_count >= CALIBRATION_MIN:
         cal_mod.run_calibration(all_mkts)
+
+    try:
+        export_dashboard_data()
+    except Exception as e:
+        log_event("WARNING", f"[DASHBOARD] export failed: {e}")
 
     return new_pos, closed, resolved

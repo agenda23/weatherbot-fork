@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Weather Bot — Kelly Simulation</title>
+<title>WeatherBet — Live Monitor</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
@@ -20,9 +20,10 @@ body::after{content:'';position:fixed;inset:0;background-image:linear-gradient(r
 .live-pill{display:flex;align-items:center;gap:6px;font-size:11px;letter-spacing:1px;color:var(--green);}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);animation:pulse 1.5s infinite;}
 .dot.gray{background:var(--text2);box-shadow:none;animation:none;}
+.dot.yellow{background:var(--yellow);box-shadow:0 0 6px var(--yellow);animation:none;}
 @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.2;}}
 .ts{font-size:10px;color:var(--text2);}
-.stats{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:20px;}
+.stats{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px;}
 .stat{background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:13px 15px;position:relative;overflow:hidden;}
 .stat::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,var(--green),transparent);opacity:.5;}
 .stat-label{font-size:9px;color:var(--text2);letter-spacing:2px;text-transform:uppercase;margin-bottom:5px;}
@@ -30,6 +31,17 @@ body::after{content:'';position:fixed;inset:0;background-image:linear-gradient(r
 .stat-val.red{color:var(--red);text-shadow:0 0 10px rgba(255,34,68,.3);}
 .stat-val.yellow{color:var(--yellow);}
 .stat-sub{font-size:9px;color:var(--text2);margin-top:3px;}
+/* city stats strip */
+.city-row{display:flex;gap:8px;margin-bottom:14px;overflow-x:auto;padding-bottom:4px;}
+.city-row::-webkit-scrollbar{height:2px;}
+.city-row::-webkit-scrollbar-thumb{background:var(--border);}
+.city-card{background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:10px 14px;flex-shrink:0;min-width:110px;position:relative;overflow:hidden;}
+.city-card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,var(--green),transparent);opacity:.4;}
+.city-card-name{font-size:9px;color:var(--text2);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.city-card-wr{font-family:var(--display);font-size:15px;font-weight:700;line-height:1;}
+.city-card-pnl{font-size:9px;margin-top:3px;}
+.city-card-wl{font-size:9px;color:var(--text2);margin-top:1px;}
+/* main layout */
 .layout{display:grid;grid-template-columns:1fr 340px;gap:14px;margin-bottom:14px;}
 .chart-card{background:var(--bg2);border:1px solid var(--border);border-radius:4px;overflow:hidden;position:relative;}
 .chart-card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--green),transparent);opacity:.4;}
@@ -48,13 +60,12 @@ body::after{content:'';position:fixed;inset:0;background-image:linear-gradient(r
 .scroll{max-height:290px;overflow-y:auto;}
 .scroll::-webkit-scrollbar{width:2px;}
 .scroll::-webkit-scrollbar-thumb{background:var(--border);}
-.bot-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.bot-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px;}
 .trade-item{padding:9px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;animation:slideIn .3s ease;}
 .trade-item:last-child{border-bottom:none;}
 @keyframes slideIn{from{opacity:0;transform:translateX(-6px);}to{opacity:1;transform:none;}}
 .t-time{font-size:9px;color:var(--text2);flex-shrink:0;width:60px;}
 .t-badge{font-size:9px;padding:2px 7px;border-radius:2px;flex-shrink:0;letter-spacing:1px;border:1px solid;}
-.t-badge.buy{color:var(--green);border-color:rgba(0,255,65,.25);background:var(--green-dim);}
 .t-badge.win{color:#44ffaa;border-color:rgba(68,255,170,.25);background:rgba(68,255,170,.06);}
 .t-badge.loss{color:var(--red);border-color:rgba(255,34,68,.25);background:var(--red-dim);}
 .t-info{flex:1;min-width:0;}
@@ -73,11 +84,20 @@ body::after{content:'';position:fixed;inset:0;background-image:linear-gradient(r
 .pos-pnl.neg{color:var(--red);}
 .pos-bar{height:2px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:4px;}
 .pos-fill{height:100%;background:var(--green);border-radius:2px;transition:width .8s;box-shadow:0 0 4px var(--green);}
-.pos-meta{display:flex;gap:12px;font-size:9px;color:var(--text2);}
+.pos-meta{display:flex;gap:10px;font-size:9px;color:var(--text2);flex-wrap:wrap;}
 .pos-meta span{color:var(--yellow);}
-.empty{padding:28px;text-align:center;color:var(--text2);font-size:10px;letter-spacing:2px;}
-.no-server{padding:20px 24px;margin:0;background:rgba(255,204,0,.04);border:1px solid rgba(255,204,0,.15);border-radius:4px;font-size:11px;color:var(--yellow);line-height:1.7;}
+/* log tail */
+.log-item{padding:6px 14px;border-bottom:1px solid var(--border);font-size:9px;line-height:1.5;}
+.log-item:last-child{border-bottom:none;}
+.log-ts{color:var(--text2);}
+.log-level-info{color:var(--green);}
+.log-level-warning{color:var(--yellow);}
+.log-level-error{color:var(--red);}
+.log-msg{color:var(--text);margin-top:1px;}
+/* no-server notice */
+.no-server{padding:16px 24px;margin-bottom:20px;background:rgba(255,204,0,.04);border:1px solid rgba(255,204,0,.15);border-radius:4px;font-size:11px;color:var(--yellow);line-height:1.8;}
 .no-server code{background:rgba(0,255,65,.06);border:1px solid rgba(0,255,65,.15);padding:1px 6px;border-radius:2px;color:var(--green);font-family:var(--mono);}
+.empty{padding:28px;text-align:center;color:var(--text2);font-size:10px;letter-spacing:2px;}
 .footer{margin-top:12px;padding-top:10px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
 .footer-text{font-size:9px;color:var(--text2);letter-spacing:1px;}
 .sim-badge{font-size:9px;padding:2px 8px;border-radius:2px;background:rgba(255,204,0,.06);color:var(--yellow);border:1px solid rgba(255,204,0,.2);}
@@ -88,34 +108,38 @@ body::after{content:'';position:fixed;inset:0;background-image:linear-gradient(r
 
 <div class="header">
   <div>
-    <div class="brand-title">WEATHER BOT — KELLY SIM</div>
+    <div class="brand-title">WEATHERBET — LIVE MONITOR</div>
     <div class="brand-sub">Polymarket · Open-Meteo · Kelly Criterion · EV Analysis</div>
   </div>
   <div class="header-right">
-    <div class="live-pill"><div class="dot" id="status-dot"></div><span id="status-text">CONNECTING...</span></div>
+    <div class="live-pill"><div class="dot gray" id="status-dot"></div><span id="status-text">CONNECTING...</span></div>
     <div class="ts" id="ts">—</div>
   </div>
 </div>
 
-<div id="no-server-msg" class="no-server" style="display:none;margin-bottom:20px;">
-  ⚠️ &nbsp;Dashboard needs a local server to read <code>simulation.json</code>.<br>
-  Run this command in your <code>weatherbot</code> folder, then refresh:<br><br>
-  <code>python -m http.server 8000</code><br><br>
-  Then open: <code>http://localhost:8000/sim_dashboard.html</code>
+<div id="no-server-msg" class="no-server" style="display:none;">
+  ⚠️ &nbsp;Dashboard requires a local HTTP server to read <code>data/dashboard.json</code>.<br>
+  Start the bot normally and the server will start automatically:<br><br>
+  <code>python weatherbet.py run</code><br><br>
+  Or start a manual server: &nbsp;<code>python -m http.server 8000</code> &nbsp;then open &nbsp;<code>http://localhost:8000/sim_dashboard_repost.html</code>
 </div>
 
 <div class="stats">
   <div class="stat"><div class="stat-label">Balance</div><div class="stat-val" id="s-bal">—</div><div class="stat-sub">virtual USDC</div></div>
-  <div class="stat"><div class="stat-label">Total PnL</div><div class="stat-val" id="s-pnl">—</div><div class="stat-sub" id="s-pct">vs $1,000 start</div></div>
+  <div class="stat"><div class="stat-label">Total PnL</div><div class="stat-val" id="s-pnl">—</div><div class="stat-sub" id="s-pct">vs start</div></div>
   <div class="stat"><div class="stat-label">Open Positions</div><div class="stat-val" id="s-open">—</div><div class="stat-sub">active trades</div></div>
   <div class="stat"><div class="stat-label">Win Rate</div><div class="stat-val yellow" id="s-wr">—</div><div class="stat-sub" id="s-wl">0W / 0L</div></div>
-  <div class="stat"><div class="stat-label">Total Trades</div><div class="stat-val" id="s-total">—</div><div class="stat-sub">all time</div></div>
-  <div class="stat"><div class="stat-label">Peak Balance</div><div class="stat-val" id="s-peak">—</div><div class="stat-sub">all time high</div></div>
+  <div class="stat"><div class="stat-label">Resolved</div><div class="stat-val" id="s-total">—</div><div class="stat-sub">all time</div></div>
+  <div class="stat"><div class="stat-label">ROI</div><div class="stat-val" id="s-roi">—</div><div class="stat-sub">return on start</div></div>
+</div>
+
+<div class="city-row" id="city-row">
+  <div class="empty" style="padding:12px 20px;">No resolved trades yet</div>
 </div>
 
 <div class="layout">
   <div class="chart-card">
-    <div class="card-head"><span class="card-title">Balance History</span><span class="card-badge">KELLY-SIZED POSITIONS</span></div>
+    <div class="card-head"><span class="card-title">Balance History</span><span class="card-badge" id="bal-badge">KELLY-SIZED POSITIONS</span></div>
     <div class="chart-body">
       <div class="chart-wrap">
         <canvas id="chart"></canvas>
@@ -125,179 +149,298 @@ body::after{content:'';position:fixed;inset:0;background-image:linear-gradient(r
   </div>
   <div class="panel">
     <div class="card-head"><span class="card-title">Open Positions</span><span class="card-badge" id="pos-badge">0 ACTIVE</span></div>
-    <div class="scroll" id="pos-list"><div class="empty">Waiting for bot data...</div></div>
+    <div class="scroll" id="pos-list"><div class="empty">No open positions</div></div>
   </div>
 </div>
 
 <div class="bot-grid">
   <div class="panel">
-    <div class="card-head"><span class="card-title">Trade History</span><span class="card-badge">FROM simulation.json</span></div>
-    <div class="scroll" id="trade-list"><div class="empty">No trades yet — run: python weather_bot_v2.py --live</div></div>
+    <div class="card-head"><span class="card-title">Trade History</span><span class="card-badge">RESOLVED</span></div>
+    <div class="scroll" id="trade-list"><div class="empty">No trades yet</div></div>
+  </div>
+  <div class="chart-card">
+    <div class="card-head"><span class="card-title">Daily PnL</span><span class="card-badge">LAST 30 DAYS</span></div>
+    <div class="chart-body" style="padding:12px;">
+      <div style="height:240px;position:relative;"><canvas id="daily-chart"></canvas></div>
+    </div>
   </div>
   <div class="panel">
-    <div class="card-head"><span class="card-title">Kelly + EV Log</span><span class="card-badge">ENTRIES ONLY</span></div>
-    <div class="scroll" id="ev-log"><div class="empty">No entries yet</div></div>
+    <div class="card-head"><span class="card-title">Bot Log</span><span class="card-badge">RECENT EVENTS</span></div>
+    <div class="scroll" id="log-list"><div class="empty">No log entries</div></div>
   </div>
 </div>
 
 <div class="footer">
-  <div class="footer-text">Weather Bot v2 · Reads from simulation.json · Refreshes every 10s</div>
-  <div class="sim-badge">⚡ $1,000 SIMULATION</div>
+  <div class="footer-text">WeatherBet · data/dashboard.json · auto-refresh 30s · <span id="gen-ts">—</span></div>
+  <div class="sim-badge" id="mode-badge">⚡ SIMULATION</div>
 </div>
 </div>
 
 <script>
-const fmt2=v=>(v>=0?'+':'')+v.toFixed(2);
-const fmtUSD=v=>'$'+Math.abs(v).toFixed(2);
-const now=()=>new Date().toLocaleTimeString('en-US',{hour12:false});
-const rand=(a,b)=>Math.random()*(b-a)+a;
+const fmt2 = v => (v >= 0 ? '+' : '') + v.toFixed(2);
+const now  = () => new Date().toLocaleTimeString('en-US', {hour12: false});
+const rand = (a, b) => Math.random() * (b - a) + a;
 
-let prevBal=null, chart=null, balHistory=[], timeLabels=[];
+let prevBal = null;
+let balChart = null;
+let dailyChart = null;
 
-// Init chart
-chart=new Chart(document.getElementById('chart'),{
-  type:'line',
-  data:{labels:[],datasets:[{data:[],borderColor:'#00ff41',backgroundColor:'rgba(0,255,65,.06)',fill:true,tension:.45,pointRadius:0,borderWidth:2}]},
-  options:{responsive:true,maintainAspectRatio:false,animation:{duration:400},plugins:{legend:{display:false},tooltip:{backgroundColor:'#020c02',borderColor:'#0a2a0a',borderWidth:1,callbacks:{label:c=>'$'+c.parsed.y.toFixed(2)}}},scales:{x:{ticks:{color:'#1a3a1a',font:{family:'Share Tech Mono',size:8},maxTicksLimit:8},grid:{color:'#050f05'}},y:{ticks:{color:'#2a5a2a',font:{family:'Share Tech Mono',size:9}},grid:{color:'#050f05'}}}}
+// --- Balance history chart ---
+balChart = new Chart(document.getElementById('chart'), {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [{
+      data: [],
+      borderColor: '#00ff41',
+      backgroundColor: 'rgba(0,255,65,.06)',
+      fill: true, tension: .45, pointRadius: 0, borderWidth: 2
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    animation: {duration: 300},
+    plugins: {legend: {display: false}, tooltip: {
+      backgroundColor: '#020c02', borderColor: '#0a2a0a', borderWidth: 1,
+      callbacks: {label: c => '$' + c.parsed.y.toFixed(2)}
+    }},
+    scales: {
+      x: {ticks: {color: '#1a3a1a', font: {family: 'Share Tech Mono', size: 8}, maxTicksLimit: 8}, grid: {color: '#050f05'}},
+      y: {ticks: {color: '#2a5a2a', font: {family: 'Share Tech Mono', size: 9}}, grid: {color: '#050f05'}}
+    }
+  }
 });
 
-function spawnDelta(v){
-  const l=document.getElementById('deltas');
-  const e=document.createElement('div');
-  e.className='delta '+(v>=0?'pos':'neg');
-  e.textContent=(v>=0?'+ $':'- $')+Math.abs(v).toFixed(2);
-  e.style.left=rand(30,l.offsetWidth-120)+'px';
-  e.style.top=rand(l.offsetHeight*.2,l.offsetHeight*.7)+'px';
+// --- Daily PnL bar chart ---
+dailyChart = new Chart(document.getElementById('daily-chart'), {
+  type: 'bar',
+  data: {labels: [], datasets: [{data: [], backgroundColor: [], borderWidth: 0}]},
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    animation: {duration: 300},
+    plugins: {legend: {display: false}, tooltip: {
+      backgroundColor: '#020c02', borderColor: '#0a2a0a', borderWidth: 1,
+      callbacks: {label: c => (c.parsed.y >= 0 ? '+' : '') + c.parsed.y.toFixed(2)}
+    }},
+    scales: {
+      x: {ticks: {color: '#1a3a1a', font: {family: 'Share Tech Mono', size: 7}, maxTicksLimit: 10}, grid: {display: false}},
+      y: {ticks: {color: '#2a5a2a', font: {family: 'Share Tech Mono', size: 8}}, grid: {color: '#050f05'}}
+    }
+  }
+});
+
+function spawnDelta(v) {
+  const l = document.getElementById('deltas');
+  const e = document.createElement('div');
+  e.className = 'delta ' + (v >= 0 ? 'pos' : 'neg');
+  e.textContent = (v >= 0 ? '+ $' : '- $') + Math.abs(v).toFixed(2);
+  e.style.left = rand(30, l.offsetWidth - 120) + 'px';
+  e.style.top  = rand(l.offsetHeight * .2, l.offsetHeight * .7) + 'px';
   l.appendChild(e);
-  setTimeout(()=>e.remove(),2500);
+  setTimeout(() => e.remove(), 2500);
 }
 
-function renderPositions(positions){
-  const el=document.getElementById('pos-list');
-  document.getElementById('pos-badge').textContent=Object.keys(positions).length+' ACTIVE';
-  if(!Object.keys(positions).length){el.innerHTML='<div class="empty">No open positions</div>';return;}
-  el.innerHTML=Object.entries(positions).map(([id,p])=>{
-    const pnl=p.pnl||0;
-    const pct=(p.current_price||p.entry_price)*100;
-    return`<div class="pos-item">
+function renderBalanceChart(history) {
+  if (!history || !history.length) return;
+  const labels = history.map(h => {
+    const d = new Date(h.ts);
+    return d.toLocaleDateString('en-US', {month: 'numeric', day: 'numeric'}) + ' ' +
+           d.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit', hour12: false});
+  });
+  balChart.data.labels = labels;
+  balChart.data.datasets[0].data = history.map(h => h.balance);
+  balChart.update();
+}
+
+function renderDailyChart(daily) {
+  if (!daily || !daily.length) return;
+  dailyChart.data.labels = daily.map(d => d.date.slice(5)); // MM-DD
+  dailyChart.data.datasets[0].data = daily.map(d => d.pnl);
+  dailyChart.data.datasets[0].backgroundColor = daily.map(d =>
+    d.pnl >= 0 ? 'rgba(0,255,65,.65)' : 'rgba(255,34,68,.65)'
+  );
+  dailyChart.update();
+}
+
+function renderCityStats(cityStats) {
+  const el = document.getElementById('city-row');
+  if (!cityStats || !Object.keys(cityStats).length) {
+    el.innerHTML = '<div class="empty" style="padding:12px 20px;">No resolved trades yet</div>';
+    return;
+  }
+  el.innerHTML = Object.entries(cityStats)
+    .sort((a, b) => b[1].pnl - a[1].pnl)
+    .map(([, s]) => {
+      const wr  = (s.win_rate * 100).toFixed(0) + '%';
+      const pnl = s.pnl;
+      const pnlCls = pnl >= 0 ? 'var(--green)' : 'var(--red)';
+      return `<div class="city-card">
+        <div class="city-card-name">${s.city_name}</div>
+        <div class="city-card-wr" style="color:${pnl>=0?'var(--green)':'var(--red)'}">${wr}</div>
+        <div class="city-card-pnl" style="color:${pnlCls}">${pnl>=0?'+':''}$${Math.abs(pnl).toFixed(2)}</div>
+        <div class="city-card-wl">${s.wins}W / ${s.losses}L</div>
+      </div>`;
+    }).join('');
+}
+
+function renderPositions(positions) {
+  const el = document.getElementById('pos-list');
+  document.getElementById('pos-badge').textContent = positions.length + ' ACTIVE';
+  if (!positions.length) {
+    el.innerHTML = '<div class="empty">No open positions</div>';
+    return;
+  }
+  el.innerHTML = positions.map(p => {
+    const pnl  = p.unrealized_pnl || 0;
+    const pct  = Math.min(100, (p.current_price || p.entry_price) * 100);
+    const unit = p.unit || 'F';
+    const label = (p.bucket_low != null && p.bucket_high != null)
+      ? `${p.bucket_low}–${p.bucket_high}°${unit}` : '';
+    const hrs = p.hours_remaining != null ? p.hours_remaining + 'h' : '—';
+    const stop = p.stop_price != null ? '$' + p.stop_price.toFixed(3) : '—';
+    const tp   = p.take_profit_threshold != null ? '$' + p.take_profit_threshold.toFixed(2) : '—';
+    return `<div class="pos-item">
       <div class="pos-top">
-        <div class="pos-q">${(p.question||'').substr(0,58)}...</div>
+        <div class="pos-q">${p.city_name} ${p.date} · ${label}</div>
         <div class="pos-pnl ${pnl>=0?'pos':'neg'}">${pnl>=0?'+':'-'}$${Math.abs(pnl).toFixed(2)}</div>
       </div>
-      <div class="pos-bar"><div class="pos-fill" style="width:${Math.min(100,pct)}%"></div></div>
+      <div class="pos-bar"><div class="pos-fill" style="width:${pct}%"></div></div>
       <div class="pos-meta">
-        <div>${p.location||''}</div>
-        <div>Kelly: <span>${((p.kelly_pct||0)*100).toFixed(1)}%</span></div>
-        <div>EV: <span>${fmt2(p.ev||0)}</span></div>
-        <div>$${(p.cost||0).toFixed(2)} in</div>
+        <div>entry <span>$${(p.entry_price||0).toFixed(3)}</span></div>
+        <div>now <span>$${(p.current_price||0).toFixed(3)}</span></div>
+        <div>EV <span>${p.ev!=null?fmt2(p.ev):'—'}</span></div>
+        <div>stop <span>${stop}</span></div>
+        <div>TP <span>${tp}</span></div>
+        <div>${hrs} left</div>
       </div>
     </div>`;
   }).join('');
 }
 
-function renderTrades(trades){
-  const el=document.getElementById('trade-list');
-  if(!trades||!trades.length){el.innerHTML='<div class="empty">No trades yet — run: python weather_bot_v2.py --live</div>';return;}
-  const recent=[...trades].reverse().slice(0,15);
-  el.innerHTML=recent.map(t=>{
-    const isEntry=t.type==='entry';
-    const isWin=t.type==='exit'&&(t.pnl||0)>0;
-    const cls=isEntry?'buy':isWin?'win':'loss';
-    const label=isEntry?'BUY':isWin?'WIN':'LOSS';
-    const amtStr=isEntry?`-$${(t.cost||0).toFixed(2)}`:(t.pnl||0)>=0?`+$${(t.pnl||0).toFixed(2)}`:`-$${Math.abs(t.pnl||0).toFixed(2)}`;
-    const amtCls=isEntry?'neg':(t.pnl||0)>=0?'pos':'neg';
-    const time=(t.opened_at||t.closed_at||'').substr(11,5)||'—';
-    return`<div class="trade-item">
-      <div class="t-time">${time}</div>
+function renderTrades(trades) {
+  const el = document.getElementById('trade-list');
+  if (!trades || !trades.length) {
+    el.innerHTML = '<div class="empty">No trades yet</div>';
+    return;
+  }
+  el.innerHTML = trades.slice(0, 20).map(t => {
+    const isWin = t.result === 'win';
+    const cls   = isWin ? 'win' : 'loss';
+    const label = isWin ? 'WIN' : 'LOSS';
+    const pnl   = t.pnl || 0;
+    const amtCls = pnl >= 0 ? 'pos' : 'neg';
+    const amtStr = (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2);
+    const unit   = 'F'; // most markets; actual_temp shows context
+    const tempStr = (t.actual_temp != null && t.forecast_temp != null)
+      ? `fc ${t.forecast_temp}° → act ${t.actual_temp}°`
+      : (t.actual_temp != null ? `actual ${t.actual_temp}°` : '');
+    return `<div class="trade-item">
+      <div class="t-time">${(t.date||'').slice(5)}</div>
       <span class="t-badge ${cls}">${label}</span>
       <div class="t-info">
-        <div class="t-q">${(t.question||'').substr(0,45)}...</div>
-        <div class="t-meta">Kelly ${((t.kelly_pct||0)*100).toFixed(1)}% · EV ${fmt2(t.ev||0)}</div>
+        <div class="t-q">${t.city_name} ${t.date}</div>
+        <div class="t-meta">${tempStr}</div>
       </div>
       <div class="t-right"><div class="t-amount ${amtCls}">${amtStr}</div></div>
     </div>`;
   }).join('');
 }
 
-function renderEvLog(trades){
-  const el=document.getElementById('ev-log');
-  const entries=(trades||[]).filter(t=>t.type==='entry').reverse().slice(0,15);
-  if(!entries.length){el.innerHTML='<div class="empty">No entries yet</div>';return;}
-  el.innerHTML=entries.map(t=>{
-    const evCol=(t.ev||0)>0?'#00ff41':'#ff2244';
-    const time=(t.opened_at||'').substr(11,5)||'—';
-    return`<div style="padding:7px 14px;border-bottom:1px solid #0a2a0a;font-size:9px;">
-      <div style="color:#2a5a2a">${time} · ${t.location||''} · ${t.date||''}</div>
-      <div style="color:#88ff88;margin-top:2px">Entry: $${(t.entry_price||0).toFixed(3)} · Our prob: ${((t.our_prob||0)*100).toFixed(0)}%</div>
-      <div style="margin-top:2px">EV: <span style="color:${evCol}">${fmt2(t.ev||0)}</span> per $1 &nbsp;|&nbsp; Kelly: <span style="color:#ffcc00">${((t.kelly_pct||0)*100).toFixed(1)}%</span> &nbsp;|&nbsp; Size: <span style="color:#00ff41">$${(t.cost||0).toFixed(2)}</span></div>
+function renderLogTail(entries) {
+  const el = document.getElementById('log-list');
+  if (!entries || !entries.length) {
+    el.innerHTML = '<div class="empty">No log entries</div>';
+    return;
+  }
+  el.innerHTML = [...entries].reverse().map(e => {
+    const ts  = e.ts ? new Date(e.ts).toLocaleTimeString('en-US', {hour12:false}) : '';
+    const lvl = (e.level || '').toUpperCase();
+    const cls = lvl === 'ERROR' ? 'error' : lvl === 'WARNING' ? 'warning' : 'info';
+    return `<div class="log-item">
+      <span class="log-ts">${ts}</span>
+      <span class="log-level-${cls}"> [${lvl}]</span>
+      <div class="log-msg">${e.msg || ''}</div>
     </div>`;
   }).join('');
 }
 
-async function loadData(){
+async function loadData() {
   try {
-    const r=await fetch('simulation.json?t='+Date.now());
-    if(!r.ok)throw new Error('not found');
+    const r = await fetch('/data/dashboard.json?t=' + Date.now());
+    if (!r.ok) throw new Error('not found');
+    const data = await r.json();
 
-    const sim=await r.json();
-    document.getElementById('no-server-msg').style.display='none';
-    document.getElementById('status-dot').className='dot';
-    document.getElementById('status-text').textContent='LIVE';
+    document.getElementById('no-server-msg').style.display = 'none';
 
-    const bal=sim.balance||1000;
-    const start=sim.starting_balance||1000;
-    const wins=sim.wins||0;
-    const losses=sim.losses||0;
-    const totalTrades=sim.total_trades||0;
-    const positions=sim.positions||{};
-    const trades=sim.trades||[];
-    const peak=sim.peak_balance||bal;
-    const openValue = Object.values(positions).reduce((s,p) => s + (p.cost||0) + (p.pnl||0), 0);
-    const total = bal + openValue;
-    const pnl = total - start;
-    const pct=pnl/start*100;
+    // --- staleness check ---
+    const genAt  = new Date(data.generated_at);
+    const ageMin = (Date.now() - genAt.getTime()) / 60000;
+    const dot    = document.getElementById('status-dot');
+    const stText = document.getElementById('status-text');
+    if (ageMin > 5) {
+      dot.className = 'dot yellow';
+      stText.textContent = 'STALE · ' + genAt.toLocaleTimeString('en-US', {hour12: false});
+    } else {
+      dot.className = 'dot';
+      stText.textContent = 'LIVE';
+    }
+    document.getElementById('ts').textContent = 'Updated: ' + now();
+    document.getElementById('gen-ts').textContent = 'last export ' + genAt.toLocaleTimeString('en-US', {hour12: false});
 
-    // Stats
-    document.getElementById('ts').textContent='Updated: '+now();
-    document.getElementById('s-bal').textContent='$'+total.toFixed(2);
-    const pnlEl=document.getElementById('s-pnl');
-    pnlEl.textContent=(pnl>=0?'+':'')+' $'+Math.abs(pnl).toFixed(2);
-    pnlEl.className='stat-val'+(pnl<0?' red':'');
-    document.getElementById('s-pct').textContent=(pct>=0?'+':'')+pct.toFixed(1)+'% return';
-    document.getElementById('s-open').textContent=Object.keys(positions).length;
-    const wr=wins+losses>0?(wins/(wins+losses)*100).toFixed(0)+'%':'—';
-    document.getElementById('s-wr').textContent=wr;
-    document.getElementById('s-wl').textContent=wins+'W / '+losses+'L';
-    document.getElementById('s-total').textContent=totalTrades;
-    document.getElementById('s-peak').textContent='$'+peak.toFixed(2);
+    const state   = data.state   || {};
+    const summary = data.summary || {};
+    const bal     = state.balance || 0;
+    const start   = state.starting_balance || bal;
 
-    // Chart
-    if(prevBal!==null&&Math.abs(bal-prevBal)>0.1)spawnDelta(bal-prevBal);
-    prevBal=bal;
-    balHistory.push(parseFloat(bal.toFixed(2)));
-    timeLabels.push(now());
-    if(balHistory.length>60){balHistory.shift();timeLabels.shift();}
-    chart.data.labels=[...timeLabels];
-    chart.data.datasets[0].data=[...balHistory];
-    chart.update();
+    // --- stats ---
+    const pnl = summary.total_realized_pnl || 0;
+    const pnlEl = document.getElementById('s-pnl');
+    pnlEl.textContent = (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2);
+    pnlEl.className = 'stat-val' + (pnl < 0 ? ' red' : '');
 
-    renderPositions(positions);
-    renderTrades(trades);
-    renderEvLog(trades);
+    document.getElementById('s-bal').textContent = '$' + bal.toFixed(2);
+    document.getElementById('s-pct').textContent = (summary.roi_pct >= 0 ? '+' : '') + (summary.roi_pct || 0).toFixed(1) + '% return';
+    document.getElementById('s-open').textContent = summary.open_count || 0;
 
-  } catch(e) {
-    document.getElementById('status-dot').className='dot gray';
-    document.getElementById('status-text').textContent='WAITING FOR BOT';
-    document.getElementById('ts').textContent='No simulation.json found';
-    // Show instructions if running from file://
-    if(location.protocol==='file:'){
-      document.getElementById('no-server-msg').style.display='block';
+    const wins   = summary.wins   || 0;
+    const losses = summary.losses || 0;
+    const wr     = wins + losses > 0 ? (wins / (wins + losses) * 100).toFixed(0) + '%' : '—';
+    document.getElementById('s-wr').textContent = wr;
+    document.getElementById('s-wl').textContent = wins + 'W / ' + losses + 'L';
+    document.getElementById('s-total').textContent = summary.resolved_count || 0;
+
+    const roi = summary.roi_pct || 0;
+    const roiEl = document.getElementById('s-roi');
+    roiEl.textContent = (roi >= 0 ? '+' : '') + roi.toFixed(1) + '%';
+    roiEl.className = 'stat-val' + (roi < 0 ? ' red' : roi > 0 ? '' : ' yellow');
+
+    // --- balance chart (delta animation) ---
+    if (prevBal !== null && Math.abs(bal - prevBal) > 0.01) spawnDelta(bal - prevBal);
+    prevBal = bal;
+    renderBalanceChart(data.balance_history || []);
+
+    // --- badge ---
+    document.getElementById('bal-badge').textContent =
+      state.peak_balance ? 'PEAK $' + state.peak_balance.toFixed(2) : 'KELLY-SIZED';
+
+    renderCityStats(data.city_stats || {});
+    renderPositions(data.open_positions || []);
+    renderTrades(data.recent_resolved || []);
+    renderDailyChart(data.daily_pnl || []);
+    renderLogTail(data.log_tail || []);
+
+  } catch (e) {
+    document.getElementById('status-dot').className = 'dot gray';
+    document.getElementById('status-text').textContent = 'OFFLINE';
+    document.getElementById('ts').textContent = 'Cannot reach data/dashboard.json';
+    if (location.protocol === 'file:') {
+      document.getElementById('no-server-msg').style.display = 'block';
     }
   }
 }
 
 loadData();
-setInterval(loadData, 10000);
+setInterval(loadData, 30000);
 </script>
 </body>
 </html>

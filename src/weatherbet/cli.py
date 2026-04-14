@@ -1,7 +1,9 @@
 """cli.py — Main loop and CLI entry point."""
 
+import http.server
 import sys
 import json
+import threading
 import time
 import webbrowser
 from datetime import datetime
@@ -12,7 +14,7 @@ import requests
 from weatherbet import calibration as cal_mod
 from weatherbet.config import (
     BALANCE, MAX_BET, SCAN_INTERVAL, LOCATIONS,
-    CLOB_SIGNING_MODE,
+    CLOB_SIGNING_MODE, DASHBOARD_PORT,
 )
 from weatherbet.notify import log_event
 from weatherbet.storage.state import load_state, save_state
@@ -33,9 +35,34 @@ from weatherbet.clob import (
 
 MONITOR_INTERVAL = 600  # monitor positions every 10 minutes
 
+_REPO_ROOT = Path(__file__).parent.parent.parent  # repo root
+
+
+def start_dashboard_server(port: int = DASHBOARD_PORT) -> None:
+    """Start a lightweight HTTP server in a background daemon thread."""
+    root = str(_REPO_ROOT)
+
+    class _Handler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=root, **kwargs)
+
+        def log_message(self, fmt, *args):  # suppress access logs
+            pass
+
+    try:
+        server = http.server.HTTPServer(("127.0.0.1", port), _Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        print(f"  Dashboard:  http://localhost:{port}/sim_dashboard_repost.html")
+        log_event("INFO", f"[DASHBOARD] HTTP server started on port {port}")
+    except OSError as e:
+        print(f"  Dashboard server could not start (port {port} busy?): {e}")
+        log_event("WARNING", f"[DASHBOARD] Could not start HTTP server on port {port}: {e}")
+
 
 def run_loop():
     cal_mod.init_cal()
+    start_dashboard_server()
 
     print(f"\n{'='*55}")
     print(f"  WEATHERBET — STARTING")

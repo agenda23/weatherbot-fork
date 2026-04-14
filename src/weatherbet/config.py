@@ -42,7 +42,9 @@ DASHBOARD_FILE   = DATA_DIR / "dashboard.json"
 STATE_FILE       = DATA_DIR / "state.json"
 MARKETS_DIR      = DATA_DIR / "markets"
 MARKETS_DIR.mkdir(exist_ok=True)
-CALIBRATION_FILE = DATA_DIR / "calibration.json"
+CALIBRATION_FILE     = DATA_DIR / "calibration.json"
+BALANCE_HISTORY_FILE = DATA_DIR / "balance_history.json"
+DASHBOARD_PORT       = int(_cfg.get("dashboard_port", 8000))
 
 LOCATIONS = {
     "nyc":          {"lat": 40.7772,  "lon":  -73.8726, "name": "New York City", "station": "KLGA", "unit": "F", "region": "us"},
