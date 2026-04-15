@@ -1,7 +1,7 @@
 # WeatherBet 実装計画書
 
 **作成日**: 2026-04-14
-**最終更新**: 2026-04-14
+**最終更新**: 2026-04-15
 **対象**: weatherbot-fork リポジトリ
 
 ---
@@ -44,7 +44,7 @@
 
 | 項目 | 状態 |
 |------|------|
-| `sim_dashboard_repost.html` と `data/` の連携 | 🟡 `dashboard.json` 生成まで対応（HTML fetch は未） |
+| `sim_dashboard_repost.html` と `data/` の連携 | ✅ 完全接続済み（HTTP サーバー自動起動・30 秒ポーリング） |
 | Visual Crossing キーなし時のキャリブレーション | 🔧 キーがあれば動作する |
 | README・docstring の `weatherbet.py` 表記 | ✅ `weatherbet.py` に統一済み |
 
@@ -73,7 +73,7 @@
 
 **目的**: 安全にコードを変更できる土台を作る。
 
-#### 1-1. プロジェクト構成の整備 🚧
+#### 1-1. プロジェクト構成の整備 ✅
 
 ```
 weatherbot-fork/
@@ -200,19 +200,30 @@ python backtest.py --forward --sweep min_ev
 
 ### Phase 5: ダッシュボード連携 ✅
 
-#### 5-1. データエクスポート ✅
+#### 5-1. データエクスポート ✅（自動化済み）
 
-```python
-def export_dashboard_data():
-    """data/dashboard.json を生成"""
-    ...
-```
+`export_dashboard_data()` が毎時スキャン・10 分監視のたびに自動呼び出し。
 
-#### 5-2. ローカル起動 ✅
+エクスポート内容（拡張済み）:
+- `state` / `summary`（残高・勝敗・ROI）
+- `open_positions`（EV・残り時間・stop_price・take_profit_threshold 含む）
+- `recent_resolved`（actual_temp・forecast_temp 含む）
+- `city_stats`（都市別勝率・PnL）
+- `balance_history`（最大 500 件永続・チャート用に直近 60 件配信）
+- `daily_pnl`（直近 30 日）
+- `log_tail`（ログ末尾 20 件）
+
+#### 5-2. リアルタイム監視ダッシュボード ✅
 
 ```bash
-python weatherbet.py dashboard   # dashboard.json を生成してブラウザで開く
+python weatherbet.py run        # 自動で http://localhost:8000/sim_dashboard_repost.html を起動
+python weatherbet.py dashboard  # 1 回エクスポートしてブラウザを開く
 ```
+
+- `http.server` を daemon スレッドで起動（`dashboard_port`、デフォルト 8000）
+- HTML が 30 秒ごとに `/data/dashboard.json` をポーリング
+- 表示パネル: 残高チャート（永続）・都市別成績カード・日次 PnL バーチャート・オープンポジション・ボットログ
+- staleness 判定: JSON の `generated_at` が 5 分以上古い場合は黄色ドットで警告
 
 ---
 
@@ -258,7 +269,8 @@ Phase 0〜6 の主要機能は実装済み。残りの課題:
 |------|---------------|------|
 | 1 | Phase 1: 依存管理（`requirements.txt`） | ✅ |
 | 2 | Phase 1: モジュール分割（`src/weatherbet/`） | ✅ |
-| 3 | Phase 6: メール通知（SMTP） | 🚧 |
-| 4 | Phase 6: OS ネイティブ通知 | 🚧 |
-| 5 | Phase 7: EIP-712 本番署名 | 🚧 |
-| 6 | Phase 7: 法規制確認 | 🚧 |
+| 3 | Phase 5: リアルタイムダッシュボード | ✅ |
+| 4 | Phase 6: メール通知（SMTP） | 🚧 |
+| 5 | Phase 6: OS ネイティブ通知 | 🚧 |
+| 6 | Phase 7: EIP-712 本番署名 | 🚧 |
+| 7 | Phase 7: 法規制確認 | 🚧 |

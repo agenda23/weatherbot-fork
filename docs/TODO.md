@@ -1,6 +1,6 @@
 # WeatherBet TODO リスト
 
-**最終更新**: 2026-04-15  
+**最終更新**: 2026-04-15（ダッシュボード完全接続・モジュール分割完了）  
 優先度: 🔴 高 / 🟡 中 / 🟢 低
 
 ---
@@ -43,25 +43,21 @@ pytest tests/ -v
 
 進捗: ✅ `log_event()` を実装し、主要イベントで構造化ログ出力に対応済み。
 
-### モジュール分割 🟢
+### モジュール分割 ✅
 
-現状: `weatherbet.py` が約1060行の単一ファイル。将来的に以下に分割:
+`weatherbet.py` を `src/weatherbet/` パッケージへ分割済み。`weatherbet.py` は薄いエントリーポイントとして残存。
 
 ```
 src/weatherbet/
 ├── config.py
-├── models.py
-├── forecast/  (ecmwf.py, hrrr.py, metar.py, blend.py)
-├── market/    (polymarket.py, parser.py, resolver.py)
-├── strategy/  (probability.py, kelly.py, risk.py)
-├── storage/   (state.py, markets.py)
 ├── calibration.py
-├── scanner.py
-├── monitor.py
-└── cli.py
+├── notify.py
+├── scanner.py / monitor.py / report.py / cli.py / clob.py
+├── forecast/  (ecmwf.py, hrrr.py, metar.py, blend.py)
+├── market/    (polymarket.py, parser.py)
+├── strategy/  (probability.py, kelly.py, risk.py)
+└── storage/   (state.py, markets.py)
 ```
-
-Phase 1〜6 が安定してから対応。
 
 ---
 
@@ -133,15 +129,19 @@ def export_dashboard_data():
 
 進捗: ✅ 実装済み。
 
-### ローカルサーバー 🟢
+### リアルタイム監視ダッシュボード ✅
+
+`python weatherbet.py run` だけでダッシュボードが起動する。
+
+- `export_dashboard_data()` が毎時スキャン・10 分監視のたびに `data/dashboard.json` を自動更新
+- `start_dashboard_server()` が `http.server` を daemon スレッドで起動（デフォルト port 8000）
+- `sim_dashboard_repost.html` が `/data/dashboard.json` を 30 秒ごとにポーリング
+- 表示内容: 残高チャート（永続）・都市別成績・日次 PnL バーチャート・オープンポジション・ボットログ
 
 ```bash
-python weatherbet.py dashboard   # dashboard.json を生成してブラウザで開く
+python weatherbet.py run        # 自動で http://localhost:8000/sim_dashboard_repost.html を起動
+python weatherbet.py dashboard  # 1 回エクスポートしてブラウザを開く
 ```
-
-既存の `sim_dashboard_repost.html` との連携（現状は `data/` との接続なし）
-
-進捗: ✅ `dashboard` CLI を追加済み（JSON 生成 + HTML オープン）。
 
 ---
 
@@ -185,5 +185,5 @@ python weatherbet.py dashboard   # dashboard.json を生成してブラウザで
 |------|------|
 | キャリブレーション有効化に 30 件以上の解決済みマーケットが必要 | `calibration_min` デフォルト値。初期はデフォルト sigma (2.0F / 1.2C) で動作 |
 | バックテスト（`--forward` なし）はポジションを取った市場のみ対象 | スキップした市場の勝敗は `--forward` モードで確認 |
-| `sim_dashboard_repost.html` は `data/` と未接続 | `dashboard` コマンドで `data/dashboard.json` を生成する基盤は対応済み。HTML 側 fetch 連携は追加対応余地あり |
+| ダッシュボードはローカルホストのみ（127.0.0.1）にバインド | `dashboard_port` で変更可。外部公開したい場合は nginx 等でリバースプロキシを追加 |
 | v1 は v2 の `config.json` と互換性なし | v1 はキーが見つからない場合はハードコードされたデフォルトにフォールバック |
