@@ -2,31 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Running the bots
+## Running the bot
 
 ```bash
-# weatherbet.py (full bot — use this for development)
-python weatherbet.py           # main scan loop (hourly)
+python weatherbet.py           # main scan loop (hourly) + dashboard server
 python weatherbet.py status    # balance and open positions
 python weatherbet.py report    # full resolved-market breakdown
-
-# weatherbet_v1.py (simple baseline, US-only)
-python weatherbet_v1.py           # paper scan
-python weatherbet_v1.py --live    # simulate trades against virtual balance
-python weatherbet_v1.py --positions
-python weatherbet_v1.py --reset
+python weatherbet.py dashboard # export dashboard.json and open browser
 ```
 
 **Install deps**: `pip install -r requirements.txt` (core: `requests`; dev: `pytest`)
 
 ## Architecture
-
-### Two independent bots
-
-| File | Cities | Forecast sources | Risk model | State file |
-|------|--------|-----------------|------------|-----------|
-| `weatherbet_v1.py` | 6 US | NWS gridpoint + METAR obs | Flat 5% position size | `simulation.json` (root) |
-| `weatherbet.py` | 20 (US/EU/Asia/CA/SA/OC) | ECMWF + HRRR (Open-Meteo) + METAR | Kelly criterion + EV filter + stops | `data/state.json`, `data/markets/`, `data/calibration.json` |
 
 `weatherbet.py` is a thin entry point — the implementation lives in `src/weatherbet/`.
 
@@ -51,15 +38,23 @@ python weatherbet_v1.py --reset
 
 **No real trading**: the bot only reads Polymarket — no wallet, no signing, no CLOB orders. All positions are simulated locally.
 
-## config.json keys (weatherbet.py schema — current)
+## config.json setup
 
-`balance`, `max_bet`, `min_ev`, `max_price`, `min_volume`, `min_hours`, `max_hours`, `kelly_fraction`, `max_slippage`, `scan_interval`, `calibration_min`, `vc_key`, `sigma_f`, `sigma_c`, `max_open_positions`.
+`config.json` is **not tracked by git** (listed in `.gitignore`). Copy the template to create it:
 
-**weatherbet_v1.py uses different keys**: `entry_threshold`, `exit_threshold`, `max_trades_per_run`, `min_hours_to_resolution`, `locations`. The current `config.json` in the repo is weatherbet.py-format; v1 falls back to hardcoded defaults when its keys are missing.
+```bash
+cp config.example.json config.json
+```
+
+Then set `vc_key` to a real Visual Crossing API key. Never commit `config.json`.
+
+Keys: `balance`, `max_bet`, `min_ev`, `max_price`, `min_volume`, `min_hours`, `max_hours`, `kelly_fraction`, `max_slippage`, `scan_interval`, `calibration_min`, `vc_key`, `sigma_f`, `sigma_c`, `max_open_positions`, `daily_loss_limit_pct`, `api_failure_alert_threshold`, `discord_webhook_url`, `clob_base_url`, `clob_api_key`, `polygon_wallet_address`, `polygon_private_key`, `clob_signing_mode`, `live_trading_enabled`, `dashboard_port`.
+
+**Note**: `weatherbet_v1.py` has been archived to `archive/` — do not use for development.
 
 ## Airport coordinates — critical detail
 
-All city coordinates in both bots are set to the **airport station** that Polymarket actually resolves on (e.g., NYC → KLGA LaGuardia, not city center). Using city-center coordinates produces 3–8°F errors that cause wrong bucket selection. Do not change these coordinates without verifying the Polymarket resolution station.
+All city coordinates are set to the **airport station** that Polymarket actually resolves on (e.g., NYC → KLGA LaGuardia, not city center). Using city-center coordinates produces 3–8°F errors that cause wrong bucket selection. Do not change these coordinates without verifying the Polymarket resolution station.
 
 ## Data directory layout (weatherbet.py, created at runtime)
 
@@ -73,4 +68,4 @@ data/
 
 `backtest.py` replays `data/markets/` with configurable params. Use `--forward` flag to evaluate all markets with `actual_temp` (not just ones with positions).
 
-`simulation.json` at repo root is weatherbet_v1.py-only.
+`simulation.json` at repo root was used by the archived `weatherbet_v1.py`; it is `.gitignore`d and not used by the current bot.

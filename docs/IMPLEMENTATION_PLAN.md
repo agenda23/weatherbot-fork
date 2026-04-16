@@ -38,7 +38,7 @@
 | キャリブレーションの sigma が MAE ベース（RMSE が統計的に正確） | ✅ RMSE 化済み |
 | `run_calibration` が誤ったフィールド名でマーケットを参照し常に空リスト | ✅ 修正済み（`status=="resolved"`, `best_source`, `best`） |
 | `forecast_snap` に `blended`/`blended_sigma` が保存されずバックテストで参照不可 | ✅ 修正済み（フィールド追加） |
-| v1/v2 の設定スキーマ不一致 | 🔧 ドキュメントで注記済み |
+| v1 アーカイブ（`archive/weatherbet_v1.py`） | ✅ アーカイブ済み |
 
 ### 1.3 動作していない・未接続の部分
 

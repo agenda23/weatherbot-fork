@@ -210,5 +210,8 @@ __marimo__/
 data/
 simulation.json
 
+# Local config (may contain API keys — never commit)
+config.json
+
 # Bundled vendored dependencies (not loaded at runtime)
 .deps/

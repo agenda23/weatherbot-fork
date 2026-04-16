@@ -24,10 +24,6 @@ Polymarket では「シカゴの最高気温が 46〜47°F になるか？」の
 
 ## バージョン
 
-### `weatherbet_v1.py` — ベースボット
-
-米国 6 都市対象。NWS 予報と空港座標で基本的なシグナル検出を行うシンプル版。ロジックの理解に適しています。
-
 ### `weatherbet.py` — フル機能ボット（現行）
 
 v1 のすべてに加え、以下を搭載:
@@ -78,6 +74,10 @@ git clone https://github.com/agenda23/weatherbot-fork
 cd weatherbot-fork
 pip install -r requirements.txt
 
+# 設定ファイルをテンプレートからコピー
+cp config.example.json config.json
+# → config.json を開き vc_key に Visual Crossing API キーを設定
+
 # 任意: eth_sign 署名検証を使う場合（requirements.txt 内のコメントを外して再実行）
 # pip install eth-account
 
@@ -89,37 +89,15 @@ pip install pytest
 
 ## 設定
 
-プロジェクトルートに `config.json` を作成します:
+`config.json` は API キーなどの機密情報を含むため `.gitignore` 対象です。テンプレートをコピーして作成してください:
 
-```json
-{
-  "balance": 10000.0,
-  "max_bet": 20.0,
-  "min_ev": 0.1,
-  "max_price": 0.45,
-  "min_volume": 500,
-  "min_hours": 2.0,
-  "max_hours": 72.0,
-  "kelly_fraction": 0.25,
-  "max_slippage": 0.03,
-  "scan_interval": 3600,
-  "calibration_min": 30,
-  "vc_key": "YOUR_VISUAL_CROSSING_KEY",
-  "sigma_f": 2.0,
-  "sigma_c": 1.2,
-  "max_open_positions": 10,
-  "daily_loss_limit_pct": 0.1,
-  "api_failure_alert_threshold": 3,
-  "discord_webhook_url": "",
-  "clob_base_url": "https://clob.polymarket.com",
-  "clob_api_key": "",
-  "polygon_wallet_address": "",
-  "polygon_private_key": "",
-  "clob_signing_mode": "stub",
-  "live_trading_enabled": false,
-  "dashboard_port": 8000
-}
+```bash
+cp config.example.json config.json
 ```
+
+`config.json` を開き、`vc_key`（Visual Crossing API キー）を自分のキーに書き換えます。その他のキーは必要に応じて変更してください。
+
+> **注意**: `config.json` は git 管理されません。`config.example.json` のみがリポジトリに含まれます。`config.json` をコミットしないでください。
 
 ### 主要設定項目
 
@@ -229,12 +207,13 @@ pytest tests/ -v
 
 ```
 weatherbot-fork/
-├── weatherbet_v1.py             # v1 ベースボット（US 6 都市・シンプル版）
-├── weatherbet.py                # v2 エントリーポイント（src/weatherbet/ に委譲）
+├── weatherbet.py                # エントリーポイント（src/weatherbet/ に委譲）
 ├── backtest.py                  # バックテスト・パラメータスイープ
-├── config.json                  # 設定ファイル
+├── config.example.json          # 設定テンプレート（git 管理対象）
+├── config.json                  # 実際の設定（.gitignore 対象・各自作成）
 ├── sim_dashboard_repost.html    # リアルタイム監視ダッシュボード（matrix テーマ）
 ├── requirements.txt             # 依存ライブラリ
+├── archive/                     # アーカイブ（weatherbet_v1.py など廃止コード）
 ├── src/
 │   └── weatherbet/              # v2 フル機能パッケージ
 │       ├── cli.py               # CLIディスパッチ・メインループ・HTTP サーバー

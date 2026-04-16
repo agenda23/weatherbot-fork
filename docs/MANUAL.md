@@ -9,12 +9,11 @@
 
 1. [セットアップ](#1-セットアップ)
 2. [設定ファイル](#2-設定ファイル-configjson)
-3. [ベースボット（weatherbet_v1.py）](#3-ベースボット-weatherbet_v1py)
-4. [フルボット（weatherbet.py）](#4-フルボット-weatherbetpy)
-5. [バックテスト（backtest.py）](#5-バックテスト-backtestpy)
-6. [Kellyシミュレーター](#6-kelly-シミュレーター-sim_dashboard_reposthtml)
-7. [データ構造](#7-データ構造)
-8. [未実装・制限事項](#8-未実装制限事項)
+3. [フルボット（weatherbet.py）](#3-フルボット-weatherbetpy)
+4. [バックテスト（backtest.py）](#4-バックテスト-backtestpy)
+5. [リアルタイムダッシュボード](#5-リアルタイムダッシュボード)
+6. [データ構造](#6-データ構造)
+7. [未実装・制限事項](#7-未実装制限事項)
 
 ---
 
@@ -46,7 +45,17 @@ pip install requests
 
 ## 2. 設定ファイル `config.json`
 
+`config.json` は API キー等の機密情報を含むため **git 管理対象外**（`.gitignore` に記載済み）。初回はテンプレートをコピーして作成する:
+
+```bash
+cp config.example.json config.json
+```
+
 ボット起動前に `config.json` を確認・調整する。変更はボット次回起動時に反映される（実行中の変更は再起動まで無効）。
+
+> **注意**: `config.json` は絶対にコミットしない。`config.example.json` のみがリポジトリに含まれる。
+
+`config.json` の内容（`config.example.json` をコピーした初期状態）:
 
 ```json
 {
@@ -60,11 +69,21 @@ pip install requests
   "kelly_fraction": 0.25,
   "scan_interval": 3600,
   "calibration_min": 30,
-  "vc_key": "YOUR_KEY_HERE",
+  "vc_key": "YOUR_VISUAL_CROSSING_API_KEY",
   "max_slippage": 0.03,
   "sigma_f": 2.0,
   "sigma_c": 1.2,
-  "max_open_positions": 10
+  "max_open_positions": 10,
+  "daily_loss_limit_pct": 0.1,
+  "api_failure_alert_threshold": 3,
+  "discord_webhook_url": "",
+  "clob_base_url": "https://clob.polymarket.com",
+  "clob_api_key": "",
+  "polygon_wallet_address": "",
+  "polygon_private_key": "",
+  "clob_signing_mode": "stub",
+  "live_trading_enabled": false,
+  "dashboard_port": 8000
 }
 ```
 
@@ -102,50 +121,7 @@ pip install requests
 
 ---
 
-## 3. ベースボット `weatherbet_v1.py`
-
-米国6都市（NYC / Chicago / Miami / Dallas / Seattle / Atlanta）に特化したシンプル版。
-NWS（NOAA）の予報のみを使用。EV / Kelly なし。固定5%サイジング。
-
-### コマンド
-
-```bash
-# ペーパーモード（デフォルト）— シグナルを表示するだけ、残高を変えない
-python weatherbet_v1.py
-
-# ライブモード — 仮想残高でトレードを実行（simulation.json に保存）
-python weatherbet_v1.py --live
-
-# オープンポジションの確認
-python weatherbet_v1.py --positions
-
-# シミュレーションリセット（残高を$1,000に戻す）
-python weatherbet_v1.py --reset
-```
-
-### 状態ファイル
-
-| ファイル | 内容 |
-|----------|------|
-| `simulation.json` | 仮想残高、オープンポジション、トレード履歴 |
-
-### v1 専用の config キー
-
-v1 は `config.json` の一部キーしか読まない。不足時はデフォルト値を使用。
-
-| キー | v1 デフォルト | 意味 |
-|------|--------------|------|
-| `entry_threshold` | `0.15` | この価格以下で買う |
-| `exit_threshold` | `0.45` | この価格以上で売る |
-| `max_trades_per_run` | `5` | 1回の実行あたり最大エントリー数 |
-| `min_hours_to_resolution` | `2` | 解決まで最短N時間 |
-| `locations` | 6都市 | カンマ区切りの都市スラッグ |
-
-> **注意**: 現在のリポジトリの `config.json` は v2 向けキー構成のため、v1 では上記キーが読まれずデフォルト値が使われる。v1 専用に設定したい場合は `config.json` に上記キーを追記する。
-
----
-
-## 4. フルボット `weatherbet.py`
+## 3. フルボット `weatherbet.py`
 
 20都市（US / EU / Asia / CA / SA / OC）対応の本番ボット。
 予報ソース: ECMWF + HRRR（逆分散アンサンブル合成） + METAR（当日観測）。
@@ -234,7 +210,7 @@ python weatherbet.py report
 
 ---
 
-## 5. バックテスト `backtest.py`
+## 4. バックテスト `backtest.py`
 
 `data/markets/` に蓄積した解決済みマーケットデータを使い、設定パラメータを変えた場合の結果を再計算する。
 
@@ -369,24 +345,58 @@ Loaded 120 markets (87 resolved) from data/markets
 
 ---
 
-## 6. Kelly シミュレーター `sim_dashboard_repost.html`
+## 5. リアルタイムダッシュボード
 
-ブラウザで直接開くスタンドアロンの HTML ダッシュボード。Kelly 基準のシミュレーションを視覚的に確認するためのツール。
+`weatherbet.py` 起動時に HTTP サーバーが自動起動し、ブラウザでボットの状態をリアルタイム監視できる。
+
+### 起動方法
 
 ```bash
-# ブラウザで開く（OS によって異なる）
-open sim_dashboard_repost.html          # macOS
-xdg-open sim_dashboard_repost.html      # Linux
-start sim_dashboard_repost.html         # Windows
+python weatherbet.py          # ボット起動と同時にダッシュボードサーバーも自動起動
+# → コンソールに http://localhost:8000/sim_dashboard_repost.html と表示される
+
+python weatherbet.py dashboard  # data/dashboard.json を1回生成してブラウザで開く
 ```
 
-> ⚠️ **未接続**: このダッシュボードは `data/` のボットデータとは**連携していない**。
-> スタンドアロンのシミュレーターとして機能するが、実際のトレード履歴は反映されない。
-> → [未実装: ダッシュボードへのデータ連携](#ダッシュボードのデータ連携)
+ブラウザで `http://localhost:8000/sim_dashboard_repost.html` を開くと、30秒ごとに自動更新される。
+
+### 表示パネル
+
+| パネル | 内容 |
+|--------|------|
+| 残高チャート | `balance_history.json` から取得した残高推移（最大60件）。セッションをまたいで継続表示 |
+| 統計サマリー | 残高・勝敗・ROI・トレード数をリアルタイム表示 |
+| 都市別成績 | 都市ごとの勝率・PnL カード |
+| 日次 PnL | 直近30日の損益バーチャート（緑/赤） |
+| オープンポジション | 現在のポジション一覧（エントリー価格・EV・残り時間・ストップ価格・テイクプロフィット閾値） |
+| 最近の解決 | 解決済みマーケット（実測気温・予報気温・勝敗・PnL） |
+| ボットログ | 直近20件の構造化ログ（INFO/WARNING/ERROR 色分け） |
+
+### データファイル
+
+ボットはスキャン・監視サイクルのたびに `data/dashboard.json` を自動生成する。HTML はこのファイルをポーリングして表示を更新する。
+
+| ファイル | 内容 |
+|----------|------|
+| `data/dashboard.json` | ダッシュボード配信データ（毎時スキャン・10分監視ごとに更新） |
+| `data/balance_history.json` | 残高時系列（最大500件永続、セッションをまたいで継続） |
+
+### 稼働状態インジケーター
+
+- 緑ドット + "LIVE": `generated_at` が5分以内
+- 黄ドット + "STALE": `generated_at` が5分以上前（ボットが停止している可能性）
+
+### ポート設定
+
+`config.json` の `dashboard_port`（デフォルト: 8000）で変更可能。他のサービスと競合する場合に調整する。
+
+```json
+"dashboard_port": 8001
+```
 
 ---
 
-## 7. データ構造
+## 6. データ構造
 
 ### `data/` ディレクトリ（weatherbet.py 実行後に生成）
 
@@ -444,24 +454,9 @@ data/
 }
 ```
 
-### `simulation.json`（weatherbet_v1.py 専用、ルートに生成）
-
-```json
-{
-  "balance": 950.00,
-  "starting_balance": 1000.0,
-  "positions": {},
-  "trades": [],
-  "total_trades": 5,
-  "wins": 3,
-  "losses": 2,
-  "peak_balance": 1020.00
-}
-```
-
 ---
 
-## 8. 未実装・制限事項
+## 7. 未実装・制限事項
 
 ### 実際のオンチェーン取引
 
@@ -474,18 +469,6 @@ data/
 - EIP-712 署名への移行（現状は `stub` / `eth_sign`）
 - 法規制の確認（利用者の居住地域による制約）
 
-### ダッシュボードのデータ連携
-
-> 🟡 **基盤実装済み**
-
-`python weatherbet.py dashboard` で `data/dashboard.json` の生成と HTML オープンは実装済み。  
-HTML 側の fetch 連携は追加実装余地がある。
-
-利用コマンド:
-```bash
-python weatherbet.py dashboard    # data/dashboard.json を生成してブラウザで開く
-```
-
 ### 通知・アラート
 
 > 🟡 **一部実装済み**
@@ -493,22 +476,15 @@ python weatherbet.py dashboard    # data/dashboard.json を生成してブラウ
 Discord Webhook は実装済み（ポジション開始、ストップロス発動、API障害の連続失敗）。  
 メール / OS 通知、日次サマリー通知は未実装。
 
-### モジュール分割
-
-> 🚧 **未実装**
-
-現在 `weatherbet.py` は設定・API・数学・状態管理・CLI が1ファイルに混在（約1050行）。
-`src/weatherbet/` パッケージへの分割は IMPLEMENTATION_PLAN.md Phase 1 に記載。
-
 ### キャリブレーションに必要なデータ量
 
 `calibration_min`（デフォルト30）件の解決済みマーケットが溜まるまでキャリブレーションは発動しない。起動直後はデフォルト sigma（`sigma_f=2.0` / `sigma_c=1.2`）が使われる。
 
 `backtest.py --sweep sigma_f` でデータに合った初期値を探し、`config.json` に設定することを推奨する。
 
-### `weatherbet.py` というファイル名
+### localhost のみでのアクセス
 
-この表記ズレは修正済み。現在のエントリポイント表記は `python weatherbet.py` に統一されている。
+ダッシュボード HTTP サーバーは `127.0.0.1` にバインドされるため、同一マシン上のブラウザからのみアクセス可能。リモートアクセスが必要な場合は別途リバースプロキシ等を設定すること。
 
 ---
 
